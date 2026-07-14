@@ -24,14 +24,8 @@ fn loop_value(ls: LoopState) -> Value {
     let mut m = HashMap::new();
     m.insert("index".to_string(), Value::Number(ls.index as f64));
     m.insert("index0".to_string(), Value::Number((ls.index - 1) as f64));
-    m.insert(
-        "first".to_string(),
-        Value::Bool(ls.index == 1),
-    );
-    m.insert(
-        "last".to_string(),
-        Value::Bool(ls.index == ls.length),
-    );
+    m.insert("first".to_string(), Value::Bool(ls.index == 1));
+    m.insert("last".to_string(), Value::Bool(ls.index == ls.length));
     m.insert("length".to_string(), Value::Number(ls.length as f64));
     Value::Object(m)
 }
@@ -77,10 +71,7 @@ fn walk(nodes: &[Node], env: &mut Env, out: &mut String) -> Result<(), TemplateE
                     }
                 };
                 let length = items.len();
-                env.loop_state = Some(LoopState {
-                    index: 0,
-                    length,
-                });
+                env.loop_state = Some(LoopState { index: 0, length });
                 for (i, item) in items.into_iter().enumerate() {
                     env.vars.insert(var.clone(), item);
                     if let Some(ls) = env.loop_state.as_mut() {
@@ -168,7 +159,9 @@ fn eval(expr: &Expr, env: &Env) -> Result<Value, TemplateError> {
                     let len = a.len() as isize;
                     let ui = if i < 0 { i + len } else { i };
                     if ui < 0 || ui >= len {
-                        return Err(TemplateError::render(format!("array index {i} out of bounds")));
+                        return Err(TemplateError::render(format!(
+                            "array index {i} out of bounds"
+                        )));
                     }
                     Ok(a[ui as usize].clone())
                 }
@@ -241,7 +234,9 @@ where
     F: Fn(std::cmp::Ordering) -> bool,
 {
     let ord = match (a, b) {
-        (Value::Number(x), Value::Number(y)) => x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal),
+        (Value::Number(x), Value::Number(y)) => {
+            x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal)
+        }
         (Value::String(x), Value::String(y)) => x.cmp(y),
         (x, y) => {
             return Err(TemplateError::type_error(format!(

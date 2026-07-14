@@ -33,15 +33,15 @@ Publish order: `tpt-hf-hub` → `tpt-jinja-chat` → `tpt-tokenizer-core` → `t
 
 ## 2. tpt-jinja-chat — pure-Rust Jinja subset parser for chat templates
 
-- [ ] Zero external dependencies (hand-rolled lexer + recursive-descent parser, manual error type — no `thiserror`)
-- [ ] Support: `{{ variable }}` substitution, `{% for %}/{% endfor %}`, `{% if %}/{% elif %}/{% else %}/{% endif %}`
-- [ ] `ChatTemplate::parse(&str) -> Result<ChatTemplate, TemplateError>`
-- [ ] `ChatTemplate::render(&self, context: &Context) -> Result<String, TemplateError>`
-- [ ] Unit tests covering real-world templates (Llama 3, Mistral `tokenizer_config.json` chat_template strings)
-- [ ] `examples/render_llama3_template.rs`
-- [ ] Doc comments + `#![warn(missing_docs)]`
-- [ ] Crate `README.md`
-- [ ] `Cargo.toml` metadata
+- [x] Zero external dependencies (hand-rolled lexer + recursive-descent parser, manual error type — no `thiserror`)
+- [x] Support: `{{ variable }}` substitution, `{% for %}/{% endfor %}`, `{% if %}/{% elif %}/{% else %}/{% endif %}`
+- [x] `ChatTemplate::parse(&str) -> Result<ChatTemplate, TemplateError>`
+- [x] `ChatTemplate::render(&self, context: &Context) -> Result<String, TemplateError>`
+- [x] Unit tests covering real-world templates (Llama 3, Mistral `tokenizer_config.json` chat_template strings)
+- [x] `examples/render_llama3_template.rs`
+- [x] Doc comments + `#![warn(missing_docs)]`
+- [x] Crate `README.md`
+- [x] `Cargo.toml` metadata
 
 ## 3. tpt-safetensors-io — memory-mapped safetensors reader/writer
 

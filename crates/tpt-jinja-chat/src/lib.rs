@@ -49,6 +49,7 @@ pub use value::{Context, Value};
 ///
 /// Construct one with [`ChatTemplate::parse`] and render it repeatedly with
 /// [`ChatTemplate::render`].
+#[derive(Debug, Clone)]
 pub struct ChatTemplate {
     inner: ast::Template,
 }

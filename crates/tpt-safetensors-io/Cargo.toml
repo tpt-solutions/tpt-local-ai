@@ -1,0 +1,16 @@
+[package]
+name = "tpt-safetensors-io"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Memory-mapped safetensors reader/writer — zero-copy mmap, aligned header, builder API."
+keywords = ["safetensors", "ml", "tensor", "mmap", "model"]
+categories = ["encoding", "filesystem", "science"]
+readme = "README.md"
+
+[dependencies]
+memmap2 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

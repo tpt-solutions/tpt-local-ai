@@ -34,7 +34,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Value::Object(
             [
                 ("role".into(), Value::String("system".into())),
-                ("content".into(), Value::String("You are a helpful assistant.".into())),
+                (
+                    "content".into(),
+                    Value::String("You are a helpful assistant.".into()),
+                ),
             ]
             .into(),
         ),

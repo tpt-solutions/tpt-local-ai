@@ -4,6 +4,7 @@ use crate::ast::{Expr, Node, Op, Template};
 use crate::error::TemplateError;
 
 /// A flat, pre-scanned item from the raw template source.
+#[derive(Debug)]
 enum Item {
     Text(String),
     Output(String),
@@ -11,6 +12,7 @@ enum Item {
 }
 
 /// A single `{% ... %}` statement with its inner expression source preserved.
+#[derive(Debug)]
 enum Stmt {
     Set { name: String, expr: String },
     For { var: String, iterable: String },
@@ -23,7 +25,7 @@ enum Stmt {
 
 /// Scan the raw template into a flat list of [`Item`]s.
 ///
-/// Handles Jinja whitespace control: a `-` immediately after an opening
+/// Supports Jinja whitespace control: a `-` immediately after an opening
 /// delimiter (`{{-`, `{%-`) trims trailing whitespace from the preceding text,
 /// and a `-` immediately before a closing delimiter (`-}}`, `-%}`) trims leading
 /// whitespace from the following text.
@@ -33,50 +35,50 @@ fn scan(src: &str) -> Result<Vec<Item>, TemplateError> {
     let mut i = 0;
     let mut text = String::new();
     // When set, the next literal text pushed should have its leading whitespace
-    // stripped (a `-%}` / `-}}` trim on the preceding tag requested this).
+    // stripped (a `-%}` / `-}}` on the preceding tag requested this).
     let mut trim_next_text = false;
 
     while i < bytes.len() {
         if bytes[i] == b'{' && i + 1 < bytes.len() {
-            match bytes[i + 1] {
-                b'{' | b'%' | b'#' => {
-                    let is_comment = bytes[i + 1] == b'#';
-                    let close = if bytes[i + 1] == b'{' {
-                        "}}"
-                    } else if is_comment {
-                        "#}"
-                    } else {
-                        "%}"
-                    };
-                    // Optional `{{-` / `{%-` whitespace control.
-                    let mut k = i + 2;
-                    let trim_left = bytes.get(k) == Some(&b'-');
-                    if trim_left {
-                        k += 1;
-                    }
-                    let (ci, cend, trim_right) = find_close(src, k, close)
-                        .ok_or_else(|| TemplateError::parse(format!("expected '{close}'"), i))?;
-                    let inner = src[k..ci].to_string();
-                    i = cend;
-                    if trim_left {
-                        while text.ends_with(|c: char| c.is_whitespace()) {
-                            text.pop();
-                        }
-                    }
-                    if !text.is_empty() {
-                        items.push(Item::Text(std::mem::take(&mut text)));
-                    }
-                    if is_comment {
-                        // Comment — discard its body; only whitespace control applies.
-                    } else if close == "}}" {
-                        items.push(Item::Output(inner.trim().to_string()));
-                    } else {
-                        items.push(Item::Stmt(parse_stmt(&inner, i)?));
-                    }
-                    trim_next_text = trim_right;
-                    continue;
+            let second = bytes[i + 1];
+            if second == b'{' || second == b'%' || second == b'#' {
+                let is_comment = second == b'#';
+                let close = if second == b'{' {
+                    "}}"
+                } else if is_comment {
+                    "#}"
+                } else {
+                    "%}"
+                };
+                // Optional `{{-` / `{%-` whitespace control marker.
+                let mut k = i + 2;
+                let trim_left = bytes.get(k) == Some(&b'-');
+                if trim_left {
+                    k += 1;
                 }
-                _ => {}
+                // Locate the closing delimiter, allowing a `-` immediately before
+                // it (`-}}` / `-%}`) for right-side whitespace control.
+                let (ci, cend, trim_right) = find_close(src, k, close)
+                    .ok_or_else(|| TemplateError::parse(format!("expected '{close}'"), i))?;
+                let inner = src[k..ci].to_string();
+                i = cend;
+                if trim_left {
+                    while text.ends_with(|c: char| c.is_whitespace()) {
+                        text.pop();
+                    }
+                }
+                if !text.is_empty() {
+                    items.push(Item::Text(std::mem::take(&mut text)));
+                }
+                if is_comment {
+                    // Comment — discard its body; only whitespace control applies.
+                } else if close == "}}" {
+                    items.push(Item::Output(inner.trim().to_string()));
+                } else {
+                    items.push(Item::Stmt(parse_stmt(&inner, i)?));
+                }
+                trim_next_text = trim_right;
+                continue;
             }
         }
         // Ordinary character.
@@ -172,118 +174,119 @@ pub(crate) fn parse(src: &str) -> Result<Template, TemplateError> {
     Ok(Template { nodes })
 }
 
-/// Parse a block of nodes until the given terminator (or end-of-input).
+/// Parse a block of nodes.
+///
+/// `terminator` is the statement keyword that ends this block (`"endfor"` or
+/// `"endif"`), or `None` at the top level. The terminator (when present and
+/// matched) is **consumed**; `elif`/`else` are left in the stream so the
+/// surrounding `if` chain can consume them.
 fn parse_block(
     iter: &mut std::iter::Peekable<std::vec::IntoIter<Item>>,
     terminator: Option<&str>,
 ) -> Result<Vec<Node>, TemplateError> {
-    /// Lightweight dispatch descriptor so we can decide what to do without
-    /// holding an immutable borrow of `iter` across a mutable call.
-    enum Next {
-        Text,
-        Output,
-        Set,
-        For,
-        IfFamily,
-        EndFor,
-        EndIf,
-        Done,
-    }
-
     let mut nodes = Vec::new();
     loop {
-        let next = match iter.peek() {
-            None => Next::Done,
-            Some(Item::Text(_)) => Next::Text,
-            Some(Item::Output(_)) => Next::Output,
-            Some(Item::Stmt(Stmt::Set { .. })) => Next::Set,
-            Some(Item::Stmt(Stmt::For { .. })) => Next::For,
-            Some(Item::Stmt(Stmt::If { .. }))
-            | Some(Item::Stmt(Stmt::Elif { .. }))
-            | Some(Item::Stmt(Stmt::Else)) => Next::IfFamily,
-            Some(Item::Stmt(Stmt::EndFor)) => Next::EndFor,
-            Some(Item::Stmt(Stmt::EndIf)) => Next::EndIf,
-        };
-        match next {
-            Next::Done => break,
-            Next::Text => {
-                let Item::Text(t) = iter.next().unwrap() else {
-                    unreachable!()
-                };
-                nodes.push(Node::Text(t));
+        match iter.peek() {
+            None => {
+                if let Some(t) = terminator {
+                    return Err(TemplateError::parse(format!("missing '{t}'"), 0));
+                }
+                return Ok(nodes);
             }
-            Next::Output => {
-                let Item::Output(e) = iter.next().unwrap() else {
-                    unreachable!()
-                };
-                let expr = parse_expression(&e, 0)?;
-                nodes.push(Node::Output(expr));
+            Some(Item::Stmt(Stmt::EndFor)) => {
+                if terminator == Some("endfor") {
+                    // Stop before the terminator; the `for` handler consumes it.
+                    return Ok(nodes);
+                }
+                return Err(TemplateError::parse("unexpected 'endfor'", 0));
             }
-            Next::Set => {
-                let Item::Stmt(Stmt::Set { name, expr }) = iter.next().unwrap() else {
-                    unreachable!()
-                };
-                let value = parse_expression(&expr, 0)?;
-                nodes.push(Node::Set { name, value });
+            Some(Item::Stmt(Stmt::EndIf)) => {
+                if terminator == Some("endif") {
+                    // Stop before the terminator; `parse_if_chain` consumes it.
+                    return Ok(nodes);
+                }
+                return Err(TemplateError::parse("unexpected 'endif'", 0));
             }
-            Next::For => {
+            Some(Item::Stmt(Stmt::Elif { .. })) | Some(Item::Stmt(Stmt::Else)) => {
+                if terminator == Some("endif") {
+                    // Belongs to the enclosing if-chain; leave for parse_if_chain.
+                    return Ok(nodes);
+                }
+                return Err(TemplateError::parse("unexpected 'elif'/'else'", 0));
+            }
+            Some(Item::Stmt(Stmt::If { .. })) => {
+                let (branches, else_body) = parse_if_chain(iter)?;
+                nodes.push(Node::If {
+                    branches,
+                    else_body,
+                });
+            }
+            Some(Item::Stmt(Stmt::For { .. })) => {
                 let Item::Stmt(Stmt::For { var, iterable }) = iter.next().unwrap() else {
                     unreachable!()
                 };
                 let iterable = parse_expression(&iterable, 0)?;
                 let body = parse_block(iter, Some("endfor"))?;
+                // `parse_block` stops *before* the matching `endfor`; consume it.
+                match iter.peek() {
+                    Some(Item::Stmt(Stmt::EndFor)) => {
+                        let _ = iter.next();
+                    }
+                    _ => return Err(TemplateError::parse("missing 'endfor'", 0)),
+                }
                 nodes.push(Node::For {
                     var,
                     iterable,
                     body,
                 });
             }
-            Next::IfFamily => {
-                let (branches, else_body) = parse_if(iter)?;
-                nodes.push(Node::If {
-                    branches,
-                    else_body,
-                });
+            Some(Item::Stmt(Stmt::Set { .. })) => {
+                let Item::Stmt(Stmt::Set { name, expr }) = iter.next().unwrap() else {
+                    unreachable!()
+                };
+                let value = parse_expression(&expr, 0)?;
+                nodes.push(Node::Set { name, value });
             }
-            Next::EndFor => {
-                if terminator != Some("endfor") {
-                    return Err(TemplateError::parse("unexpected 'endfor'", 0));
-                }
-                let _ = iter.next();
-                return Ok(nodes);
+            Some(Item::Output(e)) => {
+                let e = e.clone();
+                iter.next();
+                nodes.push(Node::Output(parse_expression(&e, 0)?));
             }
-            Next::EndIf => {
-                if terminator != Some("endif") {
-                    return Err(TemplateError::parse("unexpected 'endif'", 0));
-                }
-                let _ = iter.next();
-                return Ok(nodes);
+            Some(Item::Text(t)) => {
+                let t = t.clone();
+                iter.next();
+                nodes.push(Node::Text(t));
             }
         }
     }
-    if let Some(t) = terminator {
-        return Err(TemplateError::parse(format!("missing '{t}'"), 0));
-    }
-    Ok(nodes)
 }
 
-/// Parse an `if`/`elif`/`else`/`endif` chain. The opening `if` is the current
-/// peeked item and is consumed here.
-fn parse_if(
+/// Parse a full `if` / `elif` / `else` / `endif` chain (the first item must be
+/// the opening `if`).
+#[allow(clippy::type_complexity)]
+fn parse_if_chain(
     iter: &mut std::iter::Peekable<std::vec::IntoIter<Item>>,
 ) -> Result<(Vec<(Expr, Vec<Node>)>, Vec<Node>), TemplateError> {
     let mut branches: Vec<(Expr, Vec<Node>)> = Vec::new();
     let mut else_body: Vec<Node> = Vec::new();
 
+    // Opening `if`.
+    match iter.next() {
+        Some(Item::Stmt(Stmt::If { cond })) => {
+            let expr = parse_expression(&cond, 0)?;
+            let body = parse_block(iter, Some("endif"))?;
+            branches.push((expr, body));
+        }
+        other => {
+            return Err(TemplateError::parse(
+                format!("expected 'if', found {other:?}"),
+                0,
+            ))
+        }
+    }
+
     loop {
         match iter.peek() {
-            Some(Item::Stmt(Stmt::If { cond })) => {
-                let cond = cond.clone();
-                iter.next();
-                let expr = parse_expression(&cond, 0)?;
-                let body = parse_block(iter, Some("endif"))?;
-                branches.push((expr, body));
-            }
             Some(Item::Stmt(Stmt::Elif { cond })) => {
                 let cond = cond.clone();
                 iter.next();
@@ -299,12 +302,7 @@ fn parse_if(
                 iter.next();
                 break;
             }
-            _ => {
-                return Err(TemplateError::parse(
-                    "unexpected token inside if block",
-                    0,
-                ))
-            }
+            _ => return Err(TemplateError::parse("unexpected token inside if block", 0)),
         }
     }
     Ok((branches, else_body))

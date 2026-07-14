@@ -126,7 +126,8 @@ mod json {
         p.skip_ws();
         if p.pos != p.bytes.len() {
             return Err(TemplateError::json(format!(
-                "trailing characters at byte {}", p.pos
+                "trailing characters at byte {}",
+                p.pos
             )));
         }
         Ok(v)
@@ -286,9 +287,7 @@ mod json {
                                                 "invalid low surrogate",
                                             ));
                                         }
-                                        let c = 0x10000
-                                            + ((cp - 0xD800) << 10)
-                                            + (low - 0xDC00);
+                                        let c = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
                                         match char::from_u32(c) {
                                             Some(ch) => out.push(ch),
                                             None => {
@@ -298,9 +297,7 @@ mod json {
                                             }
                                         }
                                     } else {
-                                        return Err(TemplateError::json(
-                                            "expected low surrogate",
-                                        ));
+                                        return Err(TemplateError::json("expected low surrogate"));
                                     }
                                 } else {
                                     match char::from_u32(cp) {
@@ -377,7 +374,10 @@ mod json {
                 self.pos += 5;
                 Ok(Value::Bool(false))
             } else {
-                Err(TemplateError::json(format!("invalid literal at {}", self.pos)))
+                Err(TemplateError::json(format!(
+                    "invalid literal at {}",
+                    self.pos
+                )))
             }
         }
 
@@ -386,7 +386,10 @@ mod json {
                 self.pos += 4;
                 Ok(Value::Null)
             } else {
-                Err(TemplateError::json(format!("invalid literal at {}", self.pos)))
+                Err(TemplateError::json(format!(
+                    "invalid literal at {}",
+                    self.pos
+                )))
             }
         }
 
@@ -438,7 +441,11 @@ pub(super) fn json_stringify(value: &Value) -> String {
         Value::Object(map) => {
             let mut parts = Vec::new();
             for (k, v) in map {
-                parts.push(format!("{}:{}", json_stringify(&Value::String(k.clone())), json_stringify(v)));
+                parts.push(format!(
+                    "{}:{}",
+                    json_stringify(&Value::String(k.clone())),
+                    json_stringify(v)
+                ));
             }
             format!("{{{}}}", parts.join(","))
         }
