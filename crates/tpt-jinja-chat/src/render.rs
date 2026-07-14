@@ -65,17 +65,17 @@ fn walk(nodes: &[Node], env: &mut Env, out: &mut String) -> Result<(), TemplateE
                     SetTarget::Var(name) => {
                         env.vars.insert(name.clone(), v);
                     }
-                    SetTarget::Attr { base, attr } => {
-                        match env.vars.get_mut(base) {
-                            Some(Value::Object(o)) => {
-                                o.insert(attr.clone(), v);
-                            }
-                            Some(other) => return Err(TemplateError::type_error(format!(
-                                "cannot set attribute '{attr}' on non-object '{base}' ({other:?})"
-                            ))),
-                            None => return Err(TemplateError::undefined_variable(base.clone())),
+                    SetTarget::Attr { base, attr } => match env.vars.get_mut(base) {
+                        Some(Value::Object(o)) => {
+                            o.insert(attr.clone(), v);
                         }
-                    }
+                        Some(other) => {
+                            return Err(TemplateError::type_error(format!(
+                                "cannot set attribute '{attr}' on non-object '{base}' ({other:?})"
+                            )))
+                        }
+                        None => return Err(TemplateError::undefined_variable(base.clone())),
+                    },
                 }
             }
             Node::For {

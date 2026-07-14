@@ -23,12 +23,22 @@
 //! let bytes = builder.build().unwrap();
 //! assert!(!bytes.is_empty());
 //! ```
+//!
+//! # GGUF metadata (optional)
+//!
+//! With the `gguf` feature enabled, the [`gguf`] module adds a read-only parser
+//! for the `llama.cpp`/`ggml` [GGUF](https://github.com/ggml-org/ggml/blob/master/docs/gguf.md)
+//! container: metadata key/value pairs and per-tensor descriptors. This lets the
+//! crate cover the dominant local-inference format alongside safetensors.
 #![warn(missing_docs)]
 
 mod dtype;
 mod error;
 mod reader;
 mod writer;
+
+#[cfg(feature = "gguf")]
+pub mod gguf;
 
 pub use dtype::Dtype;
 pub use error::SafetensorsError;

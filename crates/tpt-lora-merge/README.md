@@ -1,5 +1,9 @@
 # tpt-lora-merge
 
+[![crates.io](https://img.shields.io/crates/v/tpt-lora-merge.svg)](https://crates.io/crates/tpt-lora-merge)
+[![docs.rs](https://img.shields.io/docsrs/tpt-lora-merge)](https://docs.rs/tpt-lora-merge)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+
 CPU-based merging of [LoRA](https://arxiv.org/abs/2106.09685) (Low-Rank
 Adaptation) adapters into base-model weights, reading and writing the
 [safetensors](https://github.com/huggingface/safetensors) format. No PyTorch,

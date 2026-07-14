@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tpt-local-ai · WASM playground</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        max-width: 60rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        line-height: 1.5;
+      }
+      h1 { margin-bottom: 0.25rem; }
+      .sub { opacity: 0.7; margin-top: 0; }
+      section {
+        border: 1px solid rgba(128, 128, 128, 0.35);
+        border-radius: 0.6rem;
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+      }
+      label { display: block; font-weight: 600; margin: 0.75rem 0 0.25rem; }
+      textarea, input[type="text"] {
+        width: 100%;
+        box-sizing: border-box;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.9rem;
+        padding: 0.5rem;
+        border-radius: 0.4rem;
+        border: 1px solid rgba(128, 128, 128, 0.4);
+        background: transparent;
+        color: inherit;
+      }
+      textarea { min-height: 6rem; resize: vertical; }
+      button {
+        margin-top: 0.75rem;
+        padding: 0.5rem 1rem;
+        border-radius: 0.4rem;
+        border: 0;
+        background: #4f46e5;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:hover { background: #4338ca; }
+      pre {
+        background: rgba(128, 128, 128, 0.12);
+        padding: 0.75rem;
+        border-radius: 0.4rem;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+      .err { color: #dc2626; }
+      code { background: rgba(128,128,128,0.15); padding: 0 0.25rem; border-radius: 0.25rem; }
+    </style>
+  </head>
+  <body>
+    <h1>tpt-local-ai · WASM playground</h1>
+    <p class="sub">
+      Pure-Rust, in-browser demos of
+      <code>tpt-jinja-chat</code> and <code>tpt-tokenizer-core</code>. Everything
+      runs client-side in WebAssembly — no server, no network.
+    </p>
+
+    <section>
+      <h2>Chat template renderer (tpt-jinja-chat)</h2>
+      <label for="tmpl">Template</label>
+      <textarea id="tmpl">
+{%- for m in messages -%}
+&lt;|{{ m.role }}|&gt;
+{{ m.content }}
+{% endfor -%}
+&lt;|assistant|&gt;
+</textarea>
+      <label for="ctx">Context (JSON)</label>
+      <textarea id="ctx">{
+  "messages": [
+    { "role": "system", "content": "You are helpful." },
+    { "role": "user", "content": "Hello!" }
+  ]
+}</textarea>
+      <button id="render-btn">Render</button>
+      <label>Output</label>
+      <pre id="render-out"></pre>
+    </section>
+
+    <section>
+      <h2>BPE tokenizer (tpt-tokenizer-core)</h2>
+      <label for="bpe-text">Text</label>
+      <input type="text" id="bpe-text" value="lower newest" />
+      <label for="bpe-vocab">Vocab (JSON: token → id)</label>
+      <textarea id="bpe-vocab">{
+  "l": 0, "o": 1, "w": 2, "e": 3, "r": 4, "n": 5, "s": 6, "t": 7,
+  "lo": 8, "low": 9, "er": 10, "ne": 11, "new": 12, "est": 13,
+  "lower": 14, "newest": 15
+}</textarea>
+      <label for="bpe-merges">Merges (one <code>a b</code> per line)</label>
+      <textarea id="bpe-merges">l o
+lo w
+e r
+n e
+ne w
+e s
+es t
+low er
+new est</textarea>
+      <div class="row">
+        <label style="margin:0;"><input type="checkbox" id="bpe-byte" /> byte-level</label>
+      </div>
+      <button id="bpe-btn">Encode → Decode</button>
+      <label>Output</label>
+      <pre id="bpe-out"></pre>
+    </section>
+
+    <script type="module">
+      import init, {
+        render_chat_template,
+        bpe_encode,
+        bpe_decode,
+      } from "./pkg/tpt_wasm_demo.js";
+
+      function show(el, text, isError = false) {
+        el.textContent = text;
+        el.classList.toggle("err", isError);
+      }
+
+      async function main() {
+        await init();
+
+        document.getElementById("render-btn").addEventListener("click", () => {
+          const out = document.getElementById("render-out");
+          try {
+            const result = render_chat_template(
+              document.getElementById("tmpl").value,
+              document.getElementById("ctx").value
+            );
+            show(out, result);
+          } catch (e) {
+            show(out, String(e), true);
+          }
+        });
+
+        document.getElementById("bpe-btn").addEventListener("click", () => {
+          const out = document.getElementById("bpe-out");
+          try {
+            const text = document.getElementById("bpe-text").value;
+            const vocab = document.getElementById("bpe-vocab").value;
+            const merges = document.getElementById("bpe-merges").value;
+            const byteLevel = document.getElementById("bpe-byte").checked;
+            const ids = bpe_encode(text, vocab, merges, byteLevel);
+            const decoded = bpe_decode(ids, vocab, merges, byteLevel);
+            show(
+              out,
+              `ids:     [${Array.from(ids).join(", ")}]\ndecoded: ${JSON.stringify(decoded)}`
+            );
+          } catch (e) {
+            show(out, String(e), true);
+          }
+        });
+      }
+
+      main();
+    </script>
+  </body>
+</html>

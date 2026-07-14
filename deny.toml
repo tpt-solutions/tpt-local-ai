@@ -1,0 +1,38 @@
+# cargo-deny configuration for tpt-local-ai.
+# Run locally with: cargo deny check
+# Docs: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+all-features = true
+
+[advisories]
+# Fail on known security vulnerabilities in the dependency tree.
+version = 2
+yanked = "deny"
+
+[bans]
+# Warn on duplicate versions of the same crate; deny wildcard version reqs.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[licenses]
+# Only allow permissive licenses compatible with this project's MIT/Apache-2.0.
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "MPL-2.0",
+]
+confidence-threshold = 0.9
+
+[sources]
+# Only crates.io is a trusted source by default.
+unknown-registry = "deny"
+unknown-git = "deny"

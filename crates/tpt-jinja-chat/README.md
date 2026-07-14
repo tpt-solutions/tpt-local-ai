@@ -1,5 +1,9 @@
 # tpt-jinja-chat
 
+[![crates.io](https://img.shields.io/crates/v/tpt-jinja-chat.svg)](https://crates.io/crates/tpt-jinja-chat)
+[![docs.rs](https://img.shields.io/docsrs/tpt-jinja-chat)](https://docs.rs/tpt-jinja-chat)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+
 A **pure-Rust, zero-dependency** implementation of the small slice of the
 [Jinja2](https://jinja.palletsprojects.com/) templating language used by Hugging
 Face `tokenizer_config.json` `chat_template` strings.

@@ -10,7 +10,17 @@ keywords = ["safetensors", "ml", "tensor", "mmap", "model"]
 categories = ["encoding", "filesystem", "science"]
 readme = "README.md"
 
+[features]
+default = []
+# Read-only parser for GGUF (llama.cpp/ggml) headers, metadata, and tensor
+# descriptors. Off by default; enable with `features = ["gguf"]`.
+gguf = []
+
 [dependencies]
 memmap2 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[[example]]
+name = "inspect_gguf"
+required-features = ["gguf"]

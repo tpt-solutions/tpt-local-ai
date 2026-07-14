@@ -1,5 +1,9 @@
 # tpt-tokenizer-core
 
+[![crates.io](https://img.shields.io/crates/v/tpt-tokenizer-core.svg)](https://crates.io/crates/tpt-tokenizer-core)
+[![docs.rs](https://img.shields.io/docsrs/tpt-tokenizer-core)](https://docs.rs/tpt-tokenizer-core)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+
 A small, **dependency-free** implementation of the two tokenization schemes used
 by most open-weight LLMs, written in pure Rust:
 

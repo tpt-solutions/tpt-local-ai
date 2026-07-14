@@ -1,5 +1,9 @@
 # tpt-hf-hub
 
+[![crates.io](https://img.shields.io/crates/v/tpt-hf-hub.svg)](https://crates.io/crates/tpt-hf-hub)
+[![docs.rs](https://img.shields.io/docsrs/tpt-hf-hub)](https://docs.rs/tpt-hf-hub)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+
 Async Hugging Face Hub downloader and cache manager for Rust.
 
 - Resumable downloads via HTTP `Range` requests

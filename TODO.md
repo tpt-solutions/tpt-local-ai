@@ -14,7 +14,7 @@ Publish order: `tpt-hf-hub` → `tpt-jinja-chat` → `tpt-tokenizer-core` → `t
 - [x] Root `README.md` summarizing the 5-crate suite, linking to each
 - [x] `LICENSE-MIT` and `LICENSE-APACHE` at workspace root (dual license: MIT OR Apache-2.0)
 - [x] `.github/workflows/ci.yml` — matrix on stable + MSRV, steps: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all`, `cargo doc --no-deps`
-- [ ] Confirm `tpt-*` crate names are available on crates.io before first publish
+- [x] Confirm `tpt-*` crate names are available on crates.io before first publish (all 5 return 404 / available as of check)
 
 ## 1. tpt-hf-hub — async HF model downloader & cache manager
 
@@ -165,30 +165,30 @@ Publish order: `tpt-hf-hub` → `tpt-jinja-chat` → `tpt-tokenizer-core` → `t
 ### 6b. Cross-cutting bugs & hygiene found in review
 
 - [ ] Reconcile currently-uncommitted working-tree changes before any release push
-- [ ] Verify `Cargo.toml` `categories` values (e.g. `"template-engine"`, `"no-std"`) against crates.io's fixed category taxonomy before publish — an invalid category hard-fails `cargo publish`
-- [ ] Normalize `#[non_exhaustive]` usage across all 5 error enums (currently applied to `SafetensorsError`/`MergeError`/`TokenizerError` but not `HubError`/`TemplateError`) before the API is locked in by semver
+- [x] Verify `Cargo.toml` `categories` values (e.g. `"template-engine"`, `"no-std"`) against crates.io's fixed category taxonomy before publish — all category slugs across the 5 crates return `200` from the crates.io categories API
+- [x] Normalize `#[non_exhaustive]` usage across all 5 error enums — `HubError` already had it; added it to `TemplateError`, so all 5 (`HubError`/`TemplateError`/`SafetensorsError`/`MergeError`/`TokenizerError`) are now `#[non_exhaustive]`
 
 ## 7. Innovative / high-value additions
 
-- [ ] Cross-crate "cookbook" example chaining all 5 crates end-to-end: download a model + LoRA from the Hub → merge → load tokenizer → render a chat template → tokenize the result — biggest single adoption lever, since nothing currently demonstrates the crates composing
-- [ ] `cargo-fuzz` targets for `tpt-safetensors-io` header parsing and `tpt-jinja-chat` scanning (tracked per-crate above too)
+- [x] Cross-crate "cookbook" example chaining all 5 crates end-to-end: download a model + LoRA from the Hub → merge → load tokenizer → render a chat template → tokenize the result — implemented as the `crates/cookbook` binary (`cargo run -p tpt-cookbook`), runnable offline by default with an opt-in real Hub download
+- [x] `cargo-fuzz` targets for `tpt-safetensors-io` header parsing and `tpt-jinja-chat` scanning (tracked per-crate above too)
 - [ ] WASM demo for `tpt-jinja-chat` + `tpt-tokenizer-core` (both pure-Rust; tokenizer-core already `no_std`-compatible) — browser playground doubles as a "zero dependency" proof point
 - [ ] GGUF metadata reading (in `tpt-safetensors-io` or a sibling crate) — GGUF is the dominant local-inference (llama.cpp) format; safetensors-only limits the "local-AI plumbing" pitch to the HF/PyTorch half
 - [ ] `tokenizer.json` loader for `tpt-tokenizer-core` (tracked above too) — likely 10x's real-world usability
 
 ## 8. Usability / automation improvements
 
-- [ ] Add `cargo-deny` and/or `cargo-audit` to CI — supply-chain/vuln scanning, expected trust signal for crates parsing untrusted input
+- [x] Add `cargo-deny` and/or `cargo-audit` to CI — supply-chain/vuln scanning, expected trust signal for crates parsing untrusted input (added `deny.toml` + a `cargo deny` CI job)
 - [ ] Adopt `release-plz` or `cargo-release` + `cargo-workspaces` for coordinated multi-crate version bumps/changelog generation across the publish order above
 - [ ] Add `cargo-semver-checks` to CI once crates move past 0.1
-- [ ] Add a Dependabot/Renovate config for external deps (reqwest, tokio, memmap2, ndarray, clap)
+- [x] Add a Dependabot/Renovate config for external deps (reqwest, tokio, memmap2, ndarray, clap) — `.github/dependabot.yml` covers the `cargo` + `github-actions` ecosystems
 
 ## 9. Adoption / onboarding improvements
 
-- [ ] Make the cross-crate cookbook example (see §7) the root README's primary quickstart, replacing the current "defers entirely to per-crate READMEs" structure
-- [ ] Add crates.io/docs.rs/CI/license badges to root and per-crate READMEs
-- [ ] Add a README comparison section vs. closest alternatives (`hf-hub`, `minijinja`, `tokenizers`) explaining the actual differentiator (pure-Rust, zero/minimal-dep, `no_std`-friendly)
-- [ ] Add `CONTRIBUTING.md` with local dev setup + test/lint commands (currently only implicit in this checklist)
+- [x] Make the cross-crate cookbook example (see §7) the root README's primary quickstart, replacing the current "defers entirely to per-crate READMEs" structure
+- [x] Add crates.io/docs.rs/CI/license badges to root and per-crate READMEs
+- [x] Add a README comparison section vs. closest alternatives (`hf-hub`, `minijinja`, `tokenizers`) explaining the actual differentiator (pure-Rust, zero/minimal-dep, `no_std`-friendly)
+- [x] Add `CONTRIBUTING.md` with local dev setup + test/lint commands (currently only implicit in this checklist)
 
 ## 10. Publish
 

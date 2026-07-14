@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+# The browser playground targets wasm32 and pulls in wasm-bindgen; keep it out of
+# the host build/test/clippy/publish matrix. Build it separately with wasm-pack
+# (see crates/wasm-demo/README.md).
+exclude = ["crates/wasm-demo"]
 
 [workspace.package]
 version = "0.1.0"
