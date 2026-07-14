@@ -3,15 +3,20 @@
 //!
 //! The core primitive is [`merge_linear`], which computes
 //! `base + scale * (B @ A)` for a single linear weight. The higher-level
-//! [`merge_lora`] walks a base safetensors file and folds in every matching
-//! LoRA pair, producing a [`MergedWeights`] you can serialise back to disk.
+//! [`merge_lora`] (single adapter) and [`merge_loras`] (weighted sum of several
+//! adapters) walk a base safetensors file and fold in every matching LoRA pair,
+//! producing a [`MergedWeights`] you can serialise back to disk. Merged tensors
+//! preserve the base dtype, base `__metadata__` is carried through, and unused
+//! or partial adapter tensors are reported as errors.
 //!
 //! # Naming convention
 //!
 //! A base weight `"<module>.weight"` of shape `(out, in)` is paired with LoRA
-//! tensors `"<module>.lora_A.weight"` (shape `(r, in)`) and
-//! `"<module>.lora_B.weight"` (shape `(out, r)`). Any base tensor without a
-//! matching LoRA pair is copied through unchanged.
+//! tensors using either the HF PEFT (`".lora_A.weight"`/`".lora_B.weight"`) or
+//! Kohya (`".lora_down.weight"`/`".lora_up.weight"`) convention, plus optional
+//! PEFT named adapters (`".lora_A.<name>.weight"`) and a per-module `".alpha"`
+//! tensor. Any base tensor without a matching LoRA pair is copied through
+//! unchanged.
 //!
 //! # Example
 //!
@@ -31,4 +36,4 @@ pub mod error;
 pub mod merge;
 
 pub use error::MergeError;
-pub use merge::{merge_linear, merge_lora, MergedWeights};
+pub use merge::{merge_linear, merge_lora, merge_loras, MergedWeights};

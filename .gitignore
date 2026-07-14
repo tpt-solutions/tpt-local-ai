@@ -10,3 +10,9 @@ Cargo.lock
 
 # Local caches produced by the crates
 .tpt-cache/
+
+# cargo-fuzz artifacts
+**/fuzz/target/
+**/fuzz/corpus/
+**/fuzz/artifacts/
+**/fuzz/Cargo.lock

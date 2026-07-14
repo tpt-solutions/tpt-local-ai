@@ -8,6 +8,14 @@
 //!
 //! Both implement the shared [`Tokenizer`] trait with `encode` / `decode`.
 //!
+//! [`BpeTokenizer`] additionally supports GPT-2 **byte-level** mode
+//! ([`with_byte_level`](BpeTokenizer::with_byte_level)) — encoding never fails
+//! on arbitrary UTF-8 and `decode(encode(s)) == s` — and atomic **special
+//! tokens** ([`with_special_tokens`](BpeTokenizer::with_special_tokens)).
+//! [`WordPieceTokenizer`] runs a BERT-style basic tokenizer (whitespace +
+//! punctuation splitting, CJK isolation, optional
+//! [`with_lowercase`](WordPieceTokenizer::with_lowercase)).
+//!
 //! The crate is `#![no_std]` compatible: all tokenization logic lives behind
 //! `alloc` and never touches the standard library. The `std` feature (enabled
 //! by default) only adds convenience constructors that load vocabularies and
@@ -41,6 +49,7 @@ pub mod error;
 pub mod tokenizer;
 
 mod bpe;
+mod pretokenize;
 mod wordpiece;
 
 pub use bpe::BpeTokenizer;

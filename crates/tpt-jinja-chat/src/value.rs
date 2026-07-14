@@ -413,41 +413,96 @@ mod json {
     }
 }
 
-pub(super) fn json_stringify(value: &Value) -> String {
-    match value {
-        Value::String(s) => {
-            let mut out = String::with_capacity(s.len() + 2);
-            out.push('"');
-            for c in s.chars() {
-                match c {
-                    '"' => out.push_str("\\\""),
-                    '\\' => out.push_str("\\\\"),
-                    '\n' => out.push_str("\\n"),
-                    '\r' => out.push_str("\\r"),
-                    '\t' => out.push_str("\\t"),
-                    other => out.push(other),
-                }
-            }
-            out.push('"');
-            out
+pub(crate) fn json_stringify(value: &Value) -> String {
+    let mut out = String::new();
+    write_json(value, None, 0, &mut out);
+    out
+}
+
+/// Like [`json_stringify`] but pretty-printed with `indent` spaces per level.
+pub(crate) fn json_stringify_pretty(value: &Value, indent: usize) -> String {
+    let mut out = String::new();
+    write_json(value, Some(indent), 0, &mut out);
+    out
+}
+
+fn write_json_string(s: &str, out: &mut String) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            other => out.push(other),
         }
-        Value::Number(n) => n.to_string(),
-        Value::Bool(b) => b.to_string(),
-        Value::Null => "null".to_string(),
+    }
+    out.push('"');
+}
+
+fn write_json(value: &Value, indent: Option<usize>, level: usize, out: &mut String) {
+    match value {
+        Value::String(s) => write_json_string(s, out),
+        Value::Number(n) => out.push_str(&format_number(*n)),
+        Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Value::Null => out.push_str("null"),
         Value::Array(items) => {
-            let parts: Vec<String> = items.iter().map(json_stringify).collect();
-            format!("[{}]", parts.join(","))
+            if items.is_empty() {
+                out.push_str("[]");
+                return;
+            }
+            out.push('[');
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                newline_indent(indent, level + 1, out);
+                write_json(item, indent, level + 1, out);
+            }
+            newline_indent(indent, level, out);
+            out.push(']');
         }
         Value::Object(map) => {
-            let mut parts = Vec::new();
-            for (k, v) in map {
-                parts.push(format!(
-                    "{}:{}",
-                    json_stringify(&Value::String(k.clone())),
-                    json_stringify(v)
-                ));
+            if map.is_empty() {
+                out.push_str("{}");
+                return;
             }
-            format!("{{{}}}", parts.join(","))
+            // Sort keys so serialization is deterministic and reproducible.
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            out.push('{');
+            for (i, k) in keys.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                newline_indent(indent, level + 1, out);
+                write_json_string(k, out);
+                out.push(':');
+                if indent.is_some() {
+                    out.push(' ');
+                }
+                write_json(&map[*k], indent, level + 1, out);
+            }
+            newline_indent(indent, level, out);
+            out.push('}');
         }
+    }
+}
+
+fn newline_indent(indent: Option<usize>, level: usize, out: &mut String) {
+    if let Some(n) = indent {
+        out.push('\n');
+        for _ in 0..(n * level) {
+            out.push(' ');
+        }
+    }
+}
+
+fn format_number(n: f64) -> String {
+    if n.fract() == 0.0 && n.is_finite() {
+        format!("{n:.0}")
+    } else {
+        n.to_string()
     }
 }

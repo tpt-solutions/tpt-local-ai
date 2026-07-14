@@ -1,13 +1,14 @@
 //! Builder API for writing spec-compliant safetensors files.
 
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use serde_json::{Map, Value};
 
 use crate::dtype::Dtype;
 use crate::error::SafetensorsError;
+use crate::reader::SafetensorsFile;
 
 /// A builder that accumulates tensors and serialises them into a safetensors
 /// byte buffer (or file) with a correctly 8-byte-aligned header.
@@ -61,6 +62,62 @@ impl SafetensorsBuilder {
         self
     }
 
+    /// Loads every tensor and the `__metadata__` table from an existing
+    /// safetensors file into a fresh builder (copying tensor bytes), so a
+    /// caller can replace or add a subset of tensors and re-serialise.
+    ///
+    /// This is the entry point for "patch a checkpoint" workflows: open a file,
+    /// [`SafetensorsBuilder::replace_tensor`] the weights you changed, and
+    /// [`SafetensorsBuilder::write_to_file`] the result.
+    ///
+    /// # Errors
+    /// Propagates any error from opening/parsing the source file.
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, SafetensorsError> {
+        let file = SafetensorsFile::open(path)?;
+        let mut builder = Self::new();
+        let names: Vec<String> = file.tensor_names().map(str::to_string).collect();
+        for name in names {
+            let view = file
+                .get_tensor(&name)
+                .ok_or_else(|| SafetensorsError::TensorNotFound(name.clone()))?;
+            builder.add_tensor(name, view.dtype, view.shape.clone(), view.data.to_vec())?;
+        }
+        for (k, v) in file.metadata() {
+            builder.metadata.insert(k.clone(), v.clone());
+        }
+        Ok(builder)
+    }
+
+    /// Replaces an existing tensor (matched by name) in place, preserving its
+    /// position in the file, or appends it if the name is not present.
+    ///
+    /// # Errors
+    /// Returns [`SafetensorsError::BadDataLength`] when the byte length does not
+    /// match the declared shape and dtype.
+    pub fn replace_tensor(
+        &mut self,
+        name: impl Into<String>,
+        dtype: Dtype,
+        shape: Vec<usize>,
+        data: Vec<u8>,
+    ) -> Result<(), SafetensorsError> {
+        let name = name.into();
+        let expected = dtype.size_bytes() * shape.iter().product::<usize>();
+        if data.len() != expected {
+            return Err(SafetensorsError::BadDataLength {
+                name,
+                expected,
+                actual: data.len(),
+            });
+        }
+        if let Some(slot) = self.tensors.iter_mut().find(|(n, ..)| *n == name) {
+            *slot = (name, dtype, shape, data);
+        } else {
+            self.tensors.push((name, dtype, shape, data));
+        }
+        Ok(())
+    }
+
     /// Convenience for registering a `Dtype::F32` tensor from native `f32`
     /// values, which are converted to little-endian bytes automatically.
     ///
@@ -86,9 +143,25 @@ impl SafetensorsBuilder {
     /// The 8-byte length prefix and the JSON header are padded so that the
     /// start of the data section is 8-byte aligned, as required by the format.
     ///
+    /// For large outputs prefer [`SafetensorsBuilder::write_to_file`] or
+    /// [`SafetensorsBuilder::write_to`], which stream to the sink instead of
+    /// buffering the whole file in memory.
+    ///
     /// # Errors
     /// Returns [`SafetensorsError::Json`] if the header cannot be serialised.
     pub fn build(&self) -> Result<Vec<u8>, SafetensorsError> {
+        let prefixed_header = self.build_prefixed_header()?;
+        let data_len: usize = self.tensors.iter().map(|(_, _, _, d)| d.len()).sum();
+        let mut out = Vec::with_capacity(prefixed_header.len() + data_len);
+        out.extend_from_slice(&prefixed_header);
+        for (_, _, _, data) in &self.tensors {
+            out.extend_from_slice(data);
+        }
+        Ok(out)
+    }
+
+    /// Builds the 8-byte length prefix followed by the padded JSON header.
+    fn build_prefixed_header(&self) -> Result<Vec<u8>, SafetensorsError> {
         let mut offset: u64 = 0;
         let mut map = Map::new();
         for (name, dtype, shape, _) in &self.tensors {
@@ -115,26 +188,37 @@ impl SafetensorsBuilder {
         header.resize(aligned, b' ');
 
         let n = header.len() as u64;
-        let data_len: usize = self.tensors.iter().map(|(_, _, _, d)| d.len()).sum();
-        let mut out = Vec::with_capacity(8 + header.len() + data_len);
+        let mut out = Vec::with_capacity(8 + header.len());
         out.extend_from_slice(&n.to_le_bytes());
         out.extend_from_slice(&header);
-        for (_, _, _, data) in &self.tensors {
-            out.extend_from_slice(data);
-        }
         Ok(out)
+    }
+
+    /// Streams the full safetensors file to `writer` without buffering the whole
+    /// payload in memory. The header is emitted first, then each tensor's bytes
+    /// in registration order.
+    ///
+    /// # Errors
+    /// Propagates any I/O or serialisation error.
+    pub fn write_to<W: Write>(&self, writer: &mut W) -> Result<(), SafetensorsError> {
+        let prefixed_header = self.build_prefixed_header()?;
+        writer.write_all(&prefixed_header)?;
+        for (_, _, _, data) in &self.tensors {
+            writer.write_all(data)?;
+        }
+        Ok(())
     }
 
     /// Builds the file and writes it to `path` atomically.
     ///
-    /// The bytes are first written to a temporary file in the same directory,
+    /// The bytes are first streamed to a temporary file in the same directory,
     /// flushed, and then renamed over `path`. This guarantees the destination
-    /// is never left half-written or truncated if the write is interrupted.
+    /// is never left half-written or truncated if the write is interrupted, and
+    /// never materialises the entire file in memory.
     ///
     /// # Errors
     /// Propagates any I/O or serialisation error.
     pub fn write_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), SafetensorsError> {
-        let bytes = self.build()?;
         let path = path.as_ref();
         let dir = path.parent().unwrap_or_else(|| Path::new("."));
         let stem = path
@@ -144,8 +228,12 @@ impl SafetensorsBuilder {
         let tmp = dir.join(format!(".{}.{}.tmp", stem, std::process::id()));
 
         {
-            let mut file = File::create(&tmp)?;
-            file.write_all(&bytes)?;
+            let file = File::create(&tmp)?;
+            let mut writer = BufWriter::new(file);
+            self.write_to(&mut writer)?;
+            let file = writer
+                .into_inner()
+                .map_err(|e| SafetensorsError::Io(e.into_error()))?;
             file.sync_all().ok();
         }
         std::fs::rename(&tmp, path)?;

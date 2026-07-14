@@ -29,8 +29,20 @@ pub enum Dtype {
     I64,
     /// Unsigned 8-bit integer.
     U8,
+    /// Unsigned 16-bit integer.
+    U16,
+    /// Unsigned 32-bit integer.
+    U32,
+    /// Unsigned 64-bit integer.
+    U64,
     /// Boolean, stored as a single byte per element.
     BOOL,
+    /// 8-bit floating point, `e4m3` layout (1 sign, 4 exponent, 3 mantissa).
+    #[serde(rename = "F8_E4M3")]
+    F8E4M3,
+    /// 8-bit floating point, `e5m2` layout (1 sign, 5 exponent, 2 mantissa).
+    #[serde(rename = "F8_E5M2")]
+    F8E5M2,
 }
 
 impl Dtype {
@@ -38,10 +50,10 @@ impl Dtype {
     #[must_use]
     pub const fn size_bytes(&self) -> usize {
         match self {
-            Dtype::F16 | Dtype::BF16 | Dtype::I16 => 2,
-            Dtype::F32 | Dtype::I32 => 4,
-            Dtype::F64 | Dtype::I64 => 8,
-            Dtype::I8 | Dtype::U8 | Dtype::BOOL => 1,
+            Dtype::F16 | Dtype::BF16 | Dtype::I16 | Dtype::U16 => 2,
+            Dtype::F32 | Dtype::I32 | Dtype::U32 => 4,
+            Dtype::F64 | Dtype::I64 | Dtype::U64 => 8,
+            Dtype::I8 | Dtype::U8 | Dtype::BOOL | Dtype::F8E4M3 | Dtype::F8E5M2 => 1,
         }
     }
 
@@ -58,7 +70,12 @@ impl Dtype {
             Dtype::I32 => "I32",
             Dtype::I64 => "I64",
             Dtype::U8 => "U8",
+            Dtype::U16 => "U16",
+            Dtype::U32 => "U32",
+            Dtype::U64 => "U64",
             Dtype::BOOL => "BOOL",
+            Dtype::F8E4M3 => "F8_E4M3",
+            Dtype::F8E5M2 => "F8_E5M2",
         }
     }
 }

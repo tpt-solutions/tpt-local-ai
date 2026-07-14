@@ -1,6 +1,6 @@
 //! Template scanning and parsing (statements + expressions).
 
-use crate::ast::{Expr, Node, Op, Template};
+use crate::ast::{Arg, Expr, Node, Op, SetTarget, Template};
 use crate::error::TemplateError;
 
 /// A flat, pre-scanned item from the raw template source.
@@ -81,14 +81,20 @@ fn scan(src: &str) -> Result<Vec<Item>, TemplateError> {
                 continue;
             }
         }
-        // Ordinary character.
-        if trim_next_text && (bytes[i] as char).is_whitespace() {
-            i += 1;
+        // Ordinary character. Copy a whole UTF-8 scalar, never a raw byte, so
+        // multi-byte text (accents, CJK, emoji) is preserved verbatim.
+        let ch = src[i..]
+            .chars()
+            .next()
+            .expect("i is on a char boundary and in bounds");
+        let ch_len = ch.len_utf8();
+        if trim_next_text && ch.is_whitespace() {
+            i += ch_len;
             continue;
         }
         trim_next_text = false;
-        text.push(bytes[i] as char);
-        i += 1;
+        text.push(ch);
+        i += ch_len;
     }
     if !text.is_empty() {
         items.push(Item::Text(text));
@@ -99,13 +105,18 @@ fn scan(src: &str) -> Result<Vec<Item>, TemplateError> {
 /// Find the first occurrence of `close` at or after `start`, returning the index
 /// of the closing delimiter's start, the index just past it, and whether the
 /// close was whitespace-controlled (`-` immediately before it).
+///
+/// Scans by raw bytes so it can never panic on a non-char-boundary slice; the
+/// delimiters (`}}`, `%}`, `#}`) are pure ASCII, and their bytes can never occur
+/// inside a multi-byte UTF-8 sequence, so byte matching stays correct.
 fn find_close(src: &str, start: usize, close: &str) -> Option<(usize, usize, bool)> {
     let b = src.as_bytes();
+    let close_b = close.as_bytes();
     let mut i = start;
-    while i + close.len() <= b.len() {
-        if &src[i..i + close.len()] == close {
+    while i + close_b.len() <= b.len() {
+        if &b[i..i + close_b.len()] == close_b {
             let trim_right = i > 0 && b[i - 1] == b'-';
-            return Some((i, i + close.len(), trim_right));
+            return Some((i, i + close_b.len(), trim_right));
         }
         i += 1;
     }
@@ -226,6 +237,15 @@ fn parse_block(
                     unreachable!()
                 };
                 let iterable = parse_expression(&iterable, 0)?;
+                // Support tuple unpacking targets: `for k, v in ...`.
+                let targets: Vec<String> = var
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if targets.is_empty() {
+                    return Err(TemplateError::parse("empty for target", 0));
+                }
                 let body = parse_block(iter, Some("endfor"))?;
                 // `parse_block` stops *before* the matching `endfor`; consume it.
                 match iter.peek() {
@@ -235,7 +255,7 @@ fn parse_block(
                     _ => return Err(TemplateError::parse("missing 'endfor'", 0)),
                 }
                 nodes.push(Node::For {
-                    var,
+                    targets,
                     iterable,
                     body,
                 });
@@ -245,7 +265,14 @@ fn parse_block(
                     unreachable!()
                 };
                 let value = parse_expression(&expr, 0)?;
-                nodes.push(Node::Set { name, value });
+                let target = match name.split_once('.') {
+                    Some((base, attr)) => SetTarget::Attr {
+                        base: base.trim().to_string(),
+                        attr: attr.trim().to_string(),
+                    },
+                    None => SetTarget::Var(name),
+                };
+                nodes.push(Node::Set { target, value });
             }
             Some(Item::Output(e)) => {
                 let e = e.clone();
@@ -328,8 +355,10 @@ enum Tok {
     Minus,
     Assign,
     Not,
+    Pipe,
+    Is,
+    None,
 }
-
 fn tokenize_expr(src: &str) -> Result<Vec<Tok>, TemplateError> {
     let bytes = src.as_bytes();
     let mut toks = Vec::new();
@@ -370,6 +399,14 @@ fn tokenize_expr(src: &str) -> Result<Vec<Tok>, TemplateError> {
             }
             b'*' => {
                 toks.push(Tok::Op(Op::Mul));
+                i += 1;
+            }
+            b'~' => {
+                toks.push(Tok::Op(Op::Concat));
+                i += 1;
+            }
+            b'|' => {
+                toks.push(Tok::Pipe);
                 i += 1;
             }
             b'/' => {
@@ -434,8 +471,12 @@ fn tokenize_expr(src: &str) -> Result<Vec<Tok>, TemplateError> {
                         }
                         i += 2;
                     } else {
-                        s.push(bytes[i] as char);
-                        i += 1;
+                        let ch = src[i..]
+                            .chars()
+                            .next()
+                            .expect("i is on a char boundary and in bounds");
+                        s.push(ch);
+                        i += ch.len_utf8();
                     }
                 }
                 if i >= bytes.len() {
@@ -467,9 +508,12 @@ fn tokenize_expr(src: &str) -> Result<Vec<Tok>, TemplateError> {
                 match word {
                     "and" => toks.push(Tok::Op(Op::And)),
                     "or" => toks.push(Tok::Op(Op::Or)),
+                    "in" => toks.push(Tok::Op(Op::In)),
                     "not" => toks.push(Tok::Not),
-                    "true" => toks.push(Tok::Bool(true)),
-                    "false" => toks.push(Tok::Bool(false)),
+                    "is" => toks.push(Tok::Is),
+                    "true" | "True" => toks.push(Tok::Bool(true)),
+                    "false" | "False" => toks.push(Tok::Bool(false)),
+                    "none" | "None" | "null" => toks.push(Tok::None),
                     _ => toks.push(Tok::Ident(word.to_string())),
                 }
             }
@@ -542,12 +586,54 @@ impl ExprParser {
             let e = self.parse_not()?;
             return Ok(Expr::Not(Box::new(e)));
         }
-        self.parse_cmp()
+        self.parse_test()
+    }
+
+    /// Parse an `is` / `is not` test: `expr is [not] name(args?)`.
+    fn parse_test(&mut self) -> Result<Expr, TemplateError> {
+        let left = self.parse_cmp()?;
+        if matches!(self.peek(), Some(Tok::Is)) {
+            self.next();
+            let negated = if matches!(self.peek(), Some(Tok::Not)) {
+                self.next();
+                true
+            } else {
+                false
+            };
+            let name = match self.next() {
+                Some(Tok::Ident(n)) => n,
+                Some(Tok::None) => "none".to_string(),
+                other => {
+                    return Err(TemplateError::parse(
+                        format!("expected test name after 'is', found {other:?}"),
+                        self.pos,
+                    ))
+                }
+            };
+            let args = if matches!(self.peek(), Some(Tok::LParen)) {
+                self.next();
+                self.parse_args()?
+            } else {
+                Vec::new()
+            };
+            return Ok(Expr::Test(Box::new(left), name, args, negated));
+        }
+        Ok(left)
     }
 
     fn parse_cmp(&mut self) -> Result<Expr, TemplateError> {
         let mut left = self.parse_add()?;
         loop {
+            // `not in` is a two-token operator; detect it before the rest.
+            if matches!(self.peek(), Some(Tok::Not))
+                && matches!(self.toks.get(self.pos + 1), Some(Tok::Op(Op::In)))
+            {
+                self.next();
+                self.next();
+                let right = self.parse_add()?;
+                left = Expr::Bin(Op::NotIn, Box::new(left), Box::new(right));
+                continue;
+            }
             let op = match self.peek() {
                 Some(Tok::Op(Op::Eq)) => Op::Eq,
                 Some(Tok::Op(Op::Ne)) => Op::Ne,
@@ -555,6 +641,7 @@ impl ExprParser {
                 Some(Tok::Op(Op::Gt)) => Op::Gt,
                 Some(Tok::Op(Op::Le)) => Op::Le,
                 Some(Tok::Op(Op::Ge)) => Op::Ge,
+                Some(Tok::Op(Op::In)) => Op::In,
                 _ => break,
             };
             self.next();
@@ -577,6 +664,11 @@ impl ExprParser {
                     self.next();
                     let right = self.parse_mul()?;
                     left = Expr::Bin(Op::Sub, Box::new(left), Box::new(right));
+                }
+                Some(Tok::Op(Op::Concat)) => {
+                    self.next();
+                    let right = self.parse_mul()?;
+                    left = Expr::Bin(Op::Concat, Box::new(left), Box::new(right));
                 }
                 _ => break,
             }
@@ -605,7 +697,69 @@ impl ExprParser {
             let e = self.parse_unary()?;
             return Ok(Expr::Neg(Box::new(e)));
         }
-        self.parse_postfix()
+        self.parse_filter()
+    }
+
+    /// Parse a chain of `| filter(args?)` applications over a postfix expression.
+    fn parse_filter(&mut self) -> Result<Expr, TemplateError> {
+        let mut e = self.parse_postfix()?;
+        while matches!(self.peek(), Some(Tok::Pipe)) {
+            self.next();
+            let name = match self.next() {
+                Some(Tok::Ident(n)) => n,
+                other => {
+                    return Err(TemplateError::parse(
+                        format!("expected filter name after '|', found {other:?}"),
+                        self.pos,
+                    ))
+                }
+            };
+            let args = if matches!(self.peek(), Some(Tok::LParen)) {
+                self.next();
+                self.parse_args()?
+            } else {
+                Vec::new()
+            };
+            e = Expr::Filter(Box::new(e), name, args);
+        }
+        Ok(e)
+    }
+
+    /// Parse a comma-separated argument list up to and including the closing
+    /// `)`. Each argument is either positional (`expr`) or a keyword (`k=expr`).
+    fn parse_args(&mut self) -> Result<Vec<Arg>, TemplateError> {
+        let mut args = Vec::new();
+        if matches!(self.peek(), Some(Tok::RParen)) {
+            self.next();
+            return Ok(args);
+        }
+        loop {
+            // Keyword argument: `ident = expr` (but not `==`).
+            let name = if let Some(Tok::Ident(n)) = self.peek().cloned() {
+                if matches!(self.toks.get(self.pos + 1), Some(Tok::Assign)) {
+                    self.next(); // ident
+                    self.next(); // '='
+                    Some(n)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            let value = self.parse()?;
+            args.push(Arg { name, value });
+            match self.next() {
+                Some(Tok::Comma) => continue,
+                Some(Tok::RParen) => break,
+                other => {
+                    return Err(TemplateError::parse(
+                        format!("expected ',' or ')' in argument list, found {other:?}"),
+                        self.pos,
+                    ))
+                }
+            }
+        }
+        Ok(args)
     }
 
     fn parse_postfix(&mut self) -> Result<Expr, TemplateError> {
@@ -632,6 +786,11 @@ impl ExprParser {
                     self.expect(&Tok::RBracket)?;
                     e = Expr::Index(Box::new(e), Box::new(idx));
                 }
+                Some(Tok::LParen) => {
+                    self.next();
+                    let args = self.parse_args()?;
+                    e = Expr::Call(Box::new(e), args);
+                }
                 _ => break,
             }
         }
@@ -644,10 +803,39 @@ impl ExprParser {
             Some(Tok::Str(s)) => Ok(Expr::Str(s)),
             Some(Tok::Num(n)) => Ok(Expr::Num(n)),
             Some(Tok::Bool(b)) => Ok(Expr::Bool(b)),
+            Some(Tok::None) => Ok(Expr::None),
             Some(Tok::LParen) => {
                 let e = self.parse()?;
                 self.expect(&Tok::RParen)?;
                 Ok(e)
+            }
+            Some(Tok::LBracket) => {
+                let mut items = Vec::new();
+                if matches!(self.peek(), Some(Tok::RBracket)) {
+                    self.next();
+                    return Ok(Expr::List(items));
+                }
+                loop {
+                    items.push(self.parse()?);
+                    match self.next() {
+                        Some(Tok::Comma) => {
+                            // Allow a trailing comma before `]`.
+                            if matches!(self.peek(), Some(Tok::RBracket)) {
+                                self.next();
+                                break;
+                            }
+                            continue;
+                        }
+                        Some(Tok::RBracket) => break,
+                        other => {
+                            return Err(TemplateError::parse(
+                                format!("expected ',' or ']' in list, found {other:?}"),
+                                self.pos,
+                            ))
+                        }
+                    }
+                }
+                Ok(Expr::List(items))
             }
             other => Err(TemplateError::parse(
                 format!("unexpected token in expression: {other:?}"),

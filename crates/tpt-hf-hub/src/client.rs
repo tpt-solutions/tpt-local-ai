@@ -9,9 +9,7 @@ use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex as AsyncMutex;
 
-use crate::cache::{
-    default_cache_dir, sanitize_repo_id, validate_relative_path, validate_repo_id,
-};
+use crate::cache::{default_cache_dir, sanitize_repo_id, validate_relative_path, validate_repo_id};
 use crate::error::HubError;
 use crate::progress::ProgressReporter;
 
@@ -419,7 +417,11 @@ fn token_from_env() -> Option<String> {
     std::env::var("HF_TOKEN")
         .ok()
         .filter(|s| !s.is_empty())
-        .or_else(|| std::env::var("HUGGING_FACE_HUB_TOKEN").ok().filter(|s| !s.is_empty()))
+        .or_else(|| {
+            std::env::var("HUGGING_FACE_HUB_TOKEN")
+                .ok()
+                .filter(|s| !s.is_empty())
+        })
 }
 
 fn offline_from_env() -> bool {

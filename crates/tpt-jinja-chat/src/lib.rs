@@ -6,12 +6,21 @@
 //! It supports:
 //!
 //! * `{{ expression }}` output statements
-//! * `{% set name = expr %}` variable binding
-//! * `{% for item in iterable %} … {% endfor %}`
+//! * `{% set name = expr %}` variable binding, including `{% set ns.attr = .. %}`
+//! * `{% for item in iterable %} … {% endfor %}`, including tuple unpacking
+//!   (`{% for k, v in d.items() %}`)
 //! * `{% if %} / {% elif %} / {% else %} / {% endif %}`
-//! * expressions: variables, member access (`.`), indexing (`[..]`), string and
-//!   number literals, `+` (string concat / numeric add), `-`, `*`, `/`, the
-//!   comparison operators, and `and` / `or` / `not`
+//! * expressions: variables, member access (`.`), indexing (`[..]`), string,
+//!   number, boolean, `none` and list literals, `+` / `-` / `*` / `/`, `~`
+//!   (string concat), the comparison operators, `in` / `not in`, and
+//!   `and` / `or` / `not`
+//! * filters via `|`: `tojson`, `trim`, `default`, `join`, `upper`, `lower`,
+//!   `length`, `first`, `last`, `selectattr`, `rejectattr`, `map`, `select`,
+//!   `reject`, `string`, `replace`, `int`, `float`, and more
+//! * `is` tests: `defined`, `undefined`, `none`, `string`, `number`, `mapping`,
+//!   `iterable`, `equalto`, `in`, …
+//! * function/method calls: `raise_exception(...)`, `namespace(...)`,
+//!   `range(...)`, `dict.items()`, `str.startswith(...)`, …
 //!
 //! ## Example
 //!

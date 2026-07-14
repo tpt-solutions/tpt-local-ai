@@ -4,6 +4,7 @@ use std::fmt;
 
 /// Errors that can occur while parsing or rendering a chat template.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TemplateError {
     /// A syntax error encountered while parsing the template.
     Parse {
@@ -20,6 +21,8 @@ pub enum TemplateError {
     TypeError(String),
     /// The embedded JSON parser failed to parse a string.
     Json(String),
+    /// A template explicitly raised an error via `raise_exception(...)`.
+    Exception(String),
 }
 
 impl TemplateError {
@@ -50,6 +53,11 @@ impl TemplateError {
     pub fn json(message: impl Into<String>) -> Self {
         TemplateError::Json(message.into())
     }
+
+    /// Construct a [`TemplateError::Exception`] variant (from `raise_exception`).
+    pub fn exception(message: impl Into<String>) -> Self {
+        TemplateError::Exception(message.into())
+    }
 }
 
 impl fmt::Display for TemplateError {
@@ -62,6 +70,7 @@ impl fmt::Display for TemplateError {
             TemplateError::UndefinedVariable(n) => write!(f, "undefined variable: {n}"),
             TemplateError::TypeError(m) => write!(f, "type error: {m}"),
             TemplateError::Json(m) => write!(f, "json error: {m}"),
+            TemplateError::Exception(m) => write!(f, "template raised: {m}"),
         }
     }
 }

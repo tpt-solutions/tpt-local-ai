@@ -9,7 +9,8 @@ use alloc::{
 };
 
 use crate::error::TokenizerError;
-use crate::tokenizer::{parse_vocab_lines, split_words, TokenId, Tokenizer};
+use crate::pretokenize::bert_basic;
+use crate::tokenizer::{TokenId, Tokenizer};
 
 /// Prefix attached to continuation sub-words in a WordPiece vocabulary.
 const CONTINUATION: &str = "##";
@@ -18,12 +19,17 @@ const CONTINUATION: &str = "##";
 ///
 /// Words are split greedily into the longest matching sub-words; a word that
 /// cannot be split at all is replaced by the `[UNK]` token.
+///
+/// Input is pre-tokenized with a BERT-style basic tokenizer that splits on
+/// whitespace and punctuation and isolates CJK characters. Enable
+/// [`with_lowercase`](Self::with_lowercase) to match `*-uncased` models.
 #[derive(Debug, Clone)]
 pub struct WordPieceTokenizer {
     vocab: BTreeMap<String, TokenId>,
     id_to_token: BTreeMap<TokenId, String>,
     unk_id: TokenId,
     max_input_chars_per_word: usize,
+    lowercase: bool,
 }
 
 impl WordPieceTokenizer {
@@ -49,7 +55,16 @@ impl WordPieceTokenizer {
             id_to_token,
             unk_id,
             max_input_chars_per_word: 100,
+            lowercase: false,
         })
+    }
+
+    /// Enables lowercasing during pre-tokenization, matching `*-uncased`
+    /// BERT models.
+    #[must_use]
+    pub fn with_lowercase(mut self) -> Self {
+        self.lowercase = true;
+        self
     }
 
     /// Number of tokens in the vocabulary.
@@ -107,7 +122,7 @@ impl WordPieceTokenizer {
     #[cfg(feature = "std")]
     pub fn from_file(vocab_path: &str, unk_token: &str) -> Result<Self, TokenizerError> {
         let text = std::fs::read_to_string(vocab_path)?;
-        let vocab = parse_vocab_lines(&text);
+        let vocab = crate::tokenizer::parse_vocab_lines(&text);
         Self::from_vocab(vocab, unk_token)
     }
 }
@@ -115,8 +130,8 @@ impl WordPieceTokenizer {
 impl Tokenizer for WordPieceTokenizer {
     fn encode(&self, text: &str) -> Result<Vec<TokenId>, TokenizerError> {
         let mut ids = Vec::new();
-        for word in split_words(text) {
-            match self.tokenize_word(word) {
+        for word in bert_basic(text, self.lowercase) {
+            match self.tokenize_word(&word) {
                 Some(subs) => {
                     for sub in subs {
                         ids.push(

@@ -93,10 +93,31 @@ impl<'a> TensorView<'a> {
                     out.push(f32::from(b));
                 }
             }
+            Dtype::U16 => {
+                for chunk in self.data.chunks_exact(2) {
+                    out.push(f32::from(u16::from_le_bytes(chunk.try_into().unwrap())));
+                }
+            }
+            Dtype::U32 => {
+                for chunk in self.data.chunks_exact(4) {
+                    out.push(u32::from_le_bytes(chunk.try_into().unwrap()) as f32);
+                }
+            }
+            Dtype::U64 => {
+                for chunk in self.data.chunks_exact(8) {
+                    out.push(u64::from_le_bytes(chunk.try_into().unwrap()) as f32);
+                }
+            }
             Dtype::BOOL => {
                 return Err(SafetensorsError::UnsupportedDtype(
                     "BOOL -> f32 conversion is not supported".to_string(),
                 ));
+            }
+            Dtype::F8E4M3 | Dtype::F8E5M2 => {
+                return Err(SafetensorsError::UnsupportedDtype(format!(
+                    "{} -> f32 conversion is not supported",
+                    self.dtype.as_str()
+                )));
             }
         }
         Ok(out)
@@ -131,6 +152,15 @@ impl SafetensorsFile {
     /// its header is malformed.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, SafetensorsError> {
         let file = File::open(path)?;
+        // SAFETY: `Mmap::map` is unsafe because the mapped file may be mutated
+        // by another process while we hold the map, which would make the
+        // `&[u8]` view observe changing bytes (undefined behavior in the
+        // strictest sense). This crate is a read-only viewer over local model
+        // checkpoints that the caller controls; we never write through the map
+        // and every offset derived from the (untrusted) header is bounds- and
+        // overflow-checked in `parse_header` before it is used to slice the
+        // map. Callers must not point this at a file another process is
+        // concurrently truncating or rewriting.
         let mmap = unsafe { Mmap::map(&file)? };
         let (tensors, data_base, metadata) = parse_header(&mmap)?;
         Ok(Self {
@@ -192,12 +222,18 @@ fn parse_header(
         ));
     }
     let header_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap()) as usize;
-    if bytes.len() < 8 + header_len {
+    // `8 + header_len` is attacker-controlled and could overflow `usize` on a
+    // corrupted header, wrapping to a small value that then passes the bounds
+    // check. Use checked arithmetic so a hostile length is rejected outright.
+    let header_end = 8usize.checked_add(header_len).ok_or_else(|| {
+        SafetensorsError::InvalidHeader("header length overflows usize".to_string())
+    })?;
+    if bytes.len() < header_end {
         return Err(SafetensorsError::InvalidHeader(
             "declared header length exceeds file size".to_string(),
         ));
     }
-    let header_bytes = &bytes[8..8 + header_len];
+    let header_bytes = &bytes[8..header_end];
     let value: Value = serde_json::from_slice(header_bytes)?;
     let obj = value.as_object().ok_or_else(|| {
         SafetensorsError::InvalidHeader("header is not a JSON object".to_string())
@@ -264,6 +300,7 @@ fn parse_header(
     // header is attacker-controlled, so an unvalidated `start`/`end` could
     // make `get_tensor` index out of bounds (panic) or, after a `usize`
     // overflow on a huge offset, slice a wrong but in-bounds region.
+    let data_base = header_end;
     for (name, info) in &tensors {
         if info.start > info.end {
             return Err(SafetensorsError::InvalidHeader(format!(
@@ -271,14 +308,40 @@ fn parse_header(
                 info.start, info.end
             )));
         }
-        if 8 + header_len + info.end > bytes.len() {
+        // Cross-check the declared byte span against `dtype.size_bytes() *
+        // numel()`. Without this a truncated/oversized region would let callers
+        // reading `TensorView::data` directly see the wrong number of bytes.
+        let numel: usize = info
+            .shape
+            .iter()
+            .copied()
+            .try_fold(1usize, |acc, d| acc.checked_mul(d))
+            .ok_or_else(|| {
+                SafetensorsError::InvalidHeader(format!(
+                    "tensor '{name}' element count overflows usize"
+                ))
+            })?;
+        let expected = info.dtype.size_bytes().checked_mul(numel).ok_or_else(|| {
+            SafetensorsError::InvalidHeader(format!("tensor '{name}' byte size overflows usize"))
+        })?;
+        let span = info.end - info.start;
+        if span != expected {
+            return Err(SafetensorsError::InvalidHeader(format!(
+                "tensor '{name}' declares {span} bytes but shape/dtype require {expected}"
+            )));
+        }
+        // `data_base + info.end` must stay in bounds without wrapping.
+        let abs_end = data_base.checked_add(info.end).ok_or_else(|| {
+            SafetensorsError::InvalidHeader(format!("tensor '{name}' offset overflows usize"))
+        })?;
+        if abs_end > bytes.len() {
             return Err(SafetensorsError::InvalidHeader(format!(
                 "tensor '{name}' data_offsets exceed file size"
             )));
         }
     }
 
-    Ok((tensors, 8 + header_len, metadata))
+    Ok((tensors, data_base, metadata))
 }
 
 /// Converts an IEEE-754 `binary16` value to `f32`.

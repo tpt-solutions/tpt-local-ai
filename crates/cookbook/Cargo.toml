@@ -1,0 +1,21 @@
+[package]
+name = "tpt-cookbook"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "End-to-end example chaining all five tpt-local-ai crates together."
+publish = false
+
+[[bin]]
+name = "cookbook"
+path = "src/main.rs"
+
+[dependencies]
+tpt-hf-hub = { workspace = true }
+tpt-jinja-chat = { workspace = true }
+tpt-tokenizer-core = { workspace = true }
+tpt-safetensors-io = { workspace = true }
+tpt-lora-merge = { workspace = true }
+tokio = { workspace = true }
