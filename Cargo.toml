@@ -17,7 +17,7 @@ readme = "README.md"
 
 [workspace.dependencies]
 # Async HTTP + runtime
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-tls", "stream"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 sha2 = "0.10"
 dirs = "5"
