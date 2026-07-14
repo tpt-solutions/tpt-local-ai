@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tpt-ai/tpt-local-ai"
+rust-version = "1.80.0"
+authors = ["TPT Contributors"]
+readme = "README.md"
+
+[workspace.dependencies]
+# Async HTTP + runtime
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+sha2 = "0.10"
+dirs = "5"
+
+# Safetensors I/O
+memmap2 = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# LoRA merge
+ndarray = "0.16"
+clap = { version = "4", features = ["derive"] }
+
+# Internal crates
+tpt-hf-hub = { path = "crates/tpt-hf-hub", version = "0.1.0" }
+tpt-jinja-chat = { path = "crates/tpt-jinja-chat", version = "0.1.0" }
+tpt-tokenizer-core = { path = "crates/tpt-tokenizer-core", version = "0.1.0" }
+tpt-safetensors-io = { path = "crates/tpt-safetensors-io", version = "0.1.0" }
+tpt-lora-merge = { path = "crates/tpt-lora-merge", version = "0.1.0" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"

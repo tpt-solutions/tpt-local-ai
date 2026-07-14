@@ -1,0 +1,15 @@
+[package]
+name = "tpt-jinja-chat"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Pure-Rust Jinja2 subset parser for LLM chat templates — zero dependencies."
+keywords = ["jinja", "chat-template", "llm", "template", "nlp"]
+categories = ["parsing", "text-processing", "template-engine"]
+readme = "README.md"
+
+[dependencies]
+
+[dev-dependencies]

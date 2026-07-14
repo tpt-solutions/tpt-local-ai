@@ -1,0 +1,22 @@
+Repo 1: tpt-local-ai (Local AI & ML Tooling)
+Vision: To provide the missing "plumbing" for Rust developers building local, privacy-first AI applications. Python has huggingface_hub; Rust needs the TPT equivalent.
+Crate 1: tpt-hf-hub
+Purpose: An async HuggingFace model downloader and cache manager.
+Problem Solved: Downloading multi-gigabyte safetensors files in Rust currently requires reinventing the wheel. It needs to handle resumable downloads, SHA256 verification, and XDG-compliant local caching (~/.cache/tpt/hub).
+Design Details: Uses reqwest for async HTTP. Implements a custom progress-bar trait so users can plug in their own TUI. Strictly enforces atomic file writes (downloads to .tmp, renames on success) to prevent corrupted cache states.
+Crate 2: tpt-jinja-chat
+Purpose: A lightweight, pure-Rust parser for the subset of Jinja2 used in LLM tokenizer_config.json chat templates.
+Problem Solved: Modern LLMs (Llama 3, Mistral) require specific prompt formatting. Rust lacks a fast, native way to render these without pulling in massive Python bindings or heavy web-template engines.
+Design Details: Zero external dependencies. Hand-rolled recursive descent parser focused only on the Jinja features HuggingFace actually uses (variables, loops, simple if/else). Returns a Result<String, TemplateError>.
+Crate 3: tpt-safetensors-io
+Purpose: High-performance, memory-mapped reading and writing of the safetensors file format.
+Problem Solved: safetensors is the standard for safe ML weights, but Rust implementations often load the whole file into RAM.
+Design Details: Uses the memmap2 crate to memory-map the file. Provides a zero-copy API to extract tensor metadata and raw byte slices. Includes a builder pattern for writing new safetensors files with proper header alignment.
+Crate 4: tpt-tokenizer-core
+Purpose: A fast, pure-Rust implementation of BPE (Byte-Pair Encoding) and WordPiece tokenization.
+Problem Solved: Tokenizing text for LLMs is a bottleneck. Existing Rust crates often rely on C++ bindings (like HuggingFace's tokenizers library), which complicates cross-compilation (e.g., to WebAssembly or ARM).
+Design Details: 100% pure Rust. Uses a hash-map based vocabulary lookup. Designed to be easily wrapped in a no_std environment (using alloc) for edge-device inference.
+Crate 5: tpt-lora-merge
+Purpose: CPU-based merging of LoRA (Low-Rank Adaptation) weights into base model weights.
+Problem Solved: Merging LoRAs usually requires PyTorch and a GPU. Users with low-resource hardware need a way to merge small LoRAs on the CPU before running inference.
+Design Details: Reads base and LoRA safetensors, performs the matrix math using the ndarray crate, and outputs a new merged safetensors file. Includes a CLI binary for quick terminal merging.

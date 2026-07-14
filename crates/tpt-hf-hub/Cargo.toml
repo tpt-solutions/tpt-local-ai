@@ -1,0 +1,26 @@
+[package]
+name = "tpt-hf-hub"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Async HuggingFace Hub model downloader and cache manager — resumable, SHA256-verified, atomic writes."
+keywords = ["huggingface", "download", "cache", "async", "ml"]
+categories = ["asynchronous", "caching", "filesystem"]
+readme = "README.md"
+
+[dependencies]
+reqwest = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["fs", "io-util"] }
+sha2 = { workspace = true }
+dirs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+futures-util = "0.3"
+
+[dev-dependencies]
+wiremock = "0.6"
+tokio = { workspace = true, features = ["fs", "io-util", "test-util"] }
+sha2 = { workspace = true }
+serde_json = { workspace = true }
