@@ -13,11 +13,7 @@ fn write_temp(bytes: &[u8]) -> std::path::PathBuf {
 fn round_trip_f32_matrix() {
     let mut builder = SafetensorsBuilder::new();
     builder
-        .add_f32(
-            "weight",
-            vec![2, 3],
-            vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0],
-        )
+        .add_f32("weight", vec![2, 3], vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0])
         .unwrap();
     builder
         .add_metadata("description", serde_json::json!("test tensor"))
@@ -47,9 +43,7 @@ fn round_trip_f32_matrix() {
 #[test]
 fn header_is_eight_byte_aligned() {
     let mut builder = SafetensorsBuilder::new();
-    builder
-        .add_f32("x", vec![1], vec![1.0f32])
-        .unwrap();
+    builder.add_f32("x", vec![1], vec![1.0f32]).unwrap();
     let bytes = builder.build().unwrap();
     // The 8-byte length prefix plus the JSON header must be a multiple of 8.
     let header_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap()) as usize;

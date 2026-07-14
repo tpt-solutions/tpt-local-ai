@@ -1,0 +1,21 @@
+[package]
+name = "tpt-tokenizer-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Pure-Rust BPE and WordPiece tokenizer — no_std + alloc compatible, zero dependencies."
+keywords = ["tokenizer", "bpe", "wordpiece", "nlp", "llm"]
+categories = ["text-processing", "science", "no-std"]
+readme = "README.md"
+
+[features]
+# `std` is on by default and only gates the file-loading conveniences. The
+# tokenizer logic itself is `no_std` + `alloc` compatible.
+default = ["std"]
+std = []
+
+[dependencies]
+
+[dev-dependencies]

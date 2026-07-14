@@ -45,50 +45,50 @@ Publish order: `tpt-hf-hub` → `tpt-jinja-chat` → `tpt-tokenizer-core` → `t
 
 ## 3. tpt-safetensors-io — memory-mapped safetensors reader/writer
 
-- [ ] `Cargo.toml`: memmap2, serde, serde_json
-- [ ] `SafetensorsFile::open(path)` — mmap-backed, zero-copy
-- [ ] `tensor_names()` / `get_tensor(name) -> TensorView { dtype, shape, bytes }`
-- [ ] `SafetensorsBuilder` (builder pattern) for writing new files with correct 8-byte header alignment
-- [ ] Unit tests with small generated fixture `.safetensors` files (round-trip write→read)
-- [ ] `examples/inspect_safetensors.rs`
-- [ ] Doc comments + `#![warn(missing_docs)]`
-- [ ] Crate `README.md`
-- [ ] `Cargo.toml` metadata
+- [x] `Cargo.toml`: memmap2, serde, serde_json
+- [x] `SafetensorsFile::open(path)` — mmap-backed, zero-copy
+- [x] `tensor_names()` / `get_tensor(name) -> TensorView { dtype, shape, bytes }`
+- [x] `SafetensorsBuilder` (builder pattern) for writing new files with correct 8-byte header alignment
+- [x] Unit tests with small generated fixture `.safetensors` files (round-trip write→read)
+- [x] `examples/inspect_safetensors.rs`
+- [x] Doc comments + `#![warn(missing_docs)]`
+- [x] Crate `README.md`
+- [x] `Cargo.toml` metadata
 
 ## 4. tpt-tokenizer-core — pure-Rust BPE + WordPiece tokenizer
 
-- [ ] 100% pure Rust, no C++ bindings
-- [ ] `no_std` + `alloc` compatible; std-only conveniences (file loading) behind default-on `std` feature
-- [ ] HashMap-based vocab lookup
-- [ ] Shared `Tokenizer` trait with `encode`/`decode`
-- [ ] `BpeTokenizer::from_vocab_merges(...)`
-- [ ] `WordPieceTokenizer::from_vocab(...)`
-- [ ] Unit tests against known vocab/merge fixtures with expected token IDs
-- [ ] `examples/tokenize_text.rs`
-- [ ] Doc comments + `#![warn(missing_docs)]`
-- [ ] Crate `README.md`
-- [ ] `Cargo.toml` metadata
+- [x] 100% pure Rust, no C++ bindings
+- [x] `no_std` + `alloc` compatible; std-only conveniences (file loading) behind default-on `std` feature
+- [x] HashMap-based vocab lookup
+- [x] Shared `Tokenizer` trait with `encode`/`decode`
+- [x] `BpeTokenizer::from_vocab_merges(...)`
+- [x] `WordPieceTokenizer::from_vocab(...)`
+- [x] Unit tests against known vocab/merge fixtures with expected token IDs
+- [x] `examples/tokenize_text.rs`
+- [x] Doc comments + `#![warn(missing_docs)]`
+- [x] Crate `README.md`
+- [x] `Cargo.toml` metadata
 
 ## 5. tpt-lora-merge — CPU-based LoRA weight merging
 
-- [ ] `Cargo.toml`: path dependency on `tpt-safetensors-io`, `ndarray`, `clap` (for CLI)
-- [ ] `merge_lora(base, lora, scale) -> MergedWeights` library function (A @ B delta scaled by alpha/r, added to base)
-- [ ] `[[bin]]` CLI: `--base`, `--lora`, `--output`, `--scale` args via clap
-- [ ] Unit tests validating merge math against hand-computed small matrices
-- [ ] Integration test: full CLI run producing a merged safetensors file
-- [ ] `examples/merge_lora_example.rs`
-- [ ] Doc comments + `#![warn(missing_docs)]`
-- [ ] Crate `README.md`
-- [ ] `Cargo.toml` metadata
+- [x] `Cargo.toml`: path dependency on `tpt-safetensors-io`, `ndarray`, `clap` (for CLI)
+- [x] `merge_lora(base, lora, scale) -> MergedWeights` library function (B @ A delta scaled by alpha/r, added to base)
+- [x] `[[bin]]` CLI: `--base`, `--lora`, `--output`, `--scale` args via clap
+- [x] Unit tests validating merge math against hand-computed small matrices
+- [x] Integration test: full CLI run producing a merged safetensors file
+- [x] `examples/merge_lora_example.rs`
+- [x] Doc comments + `#![warn(missing_docs)]`
+- [x] Crate `README.md`
+- [x] `Cargo.toml` metadata
 
 ## 6. Release Readiness (cross-cutting, all crates)
 
-- [ ] Every crate: `license`, `description`, `repository`, `keywords` (≤5), `categories`, `edition = "2021"`, `rust-version`, `readme` set in `Cargo.toml`
-- [ ] `cargo doc --workspace --no-deps` builds cleanly (docs.rs-ready)
-- [ ] `cargo clippy --workspace --all-targets --all-features -- -D warnings` clean
-- [ ] `cargo fmt --check` clean
-- [ ] `cargo test --workspace` passes
-- [ ] Every crate has at least one runnable example, manually exercised (not just compiled)
+- [x] Every crate: `license`, `description`, `repository`, `keywords` (≤5), `categories`, `edition = "2021"`, `rust-version`, `readme` set in `Cargo.toml`
+- [x] `cargo doc --workspace --no-deps` builds cleanly (docs.rs-ready)
+- [x] `cargo clippy --workspace --all-targets --all-features -- -D warnings` clean
+- [x] `cargo fmt --check` clean
+- [x] `cargo test --workspace` passes
+- [x] Every crate has at least one runnable example, manually exercised (not just compiled)
 
 ## 7. Publish
 

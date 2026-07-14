@@ -142,7 +142,6 @@ impl SafetensorsFile {
     }
 
     /// Iterates over the names of every tensor in the file, in header order.
-    #[must_use]
     pub fn tensor_names(&self) -> impl Iterator<Item = &str> {
         self.tensors.iter().map(|(n, _)| n.as_str())
     }
@@ -150,7 +149,11 @@ impl SafetensorsFile {
     /// Returns a zero-copy [`TensorView`] for the named tensor, if present.
     #[must_use]
     pub fn get_tensor(&self, name: &str) -> Option<TensorView<'_>> {
-        let info = self.tensors.iter().find(|(n, _)| n == name).map(|(_, i)| i)?;
+        let info = self
+            .tensors
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, i)| i)?;
         let range = self.data_base + info.start..self.data_base + info.end;
         let data = &self.mmap[range];
         Some(TensorView {
@@ -179,7 +182,10 @@ impl SafetensorsFile {
     }
 }
 
-fn parse_header(bytes: &[u8]) -> Result<(Vec<(String, TensorInfo)>, usize, Map<String, Value>), SafetensorsError> {
+#[allow(clippy::type_complexity)]
+fn parse_header(
+    bytes: &[u8],
+) -> Result<(Vec<(String, TensorInfo)>, usize, Map<String, Value>), SafetensorsError> {
     if bytes.len() < 8 {
         return Err(SafetensorsError::InvalidHeader(
             "file is smaller than the 8-byte length prefix".to_string(),
@@ -193,9 +199,9 @@ fn parse_header(bytes: &[u8]) -> Result<(Vec<(String, TensorInfo)>, usize, Map<S
     }
     let header_bytes = &bytes[8..8 + header_len];
     let value: Value = serde_json::from_slice(header_bytes)?;
-    let obj = value
-        .as_object()
-        .ok_or_else(|| SafetensorsError::InvalidHeader("header is not a JSON object".to_string()))?;
+    let obj = value.as_object().ok_or_else(|| {
+        SafetensorsError::InvalidHeader("header is not a JSON object".to_string())
+    })?;
 
     let mut tensors = Vec::new();
     let mut metadata = Map::new();
@@ -206,28 +212,30 @@ fn parse_header(bytes: &[u8]) -> Result<(Vec<(String, TensorInfo)>, usize, Map<S
             }
             continue;
         }
-        let t = val
-            .as_object()
-            .ok_or_else(|| SafetensorsError::InvalidHeader(format!("tensor '{key}' is not an object")))?;
-        let dtype_str = t
-            .get("dtype")
-            .and_then(Value::as_str)
-            .ok_or_else(|| SafetensorsError::InvalidHeader(format!("tensor '{key}' missing dtype")))?;
+        let t = val.as_object().ok_or_else(|| {
+            SafetensorsError::InvalidHeader(format!("tensor '{key}' is not an object"))
+        })?;
+        let dtype_str = t.get("dtype").and_then(Value::as_str).ok_or_else(|| {
+            SafetensorsError::InvalidHeader(format!("tensor '{key}' missing dtype"))
+        })?;
         let dtype: Dtype = serde_json::from_value(Value::String(dtype_str.to_string()))
             .map_err(|_| SafetensorsError::UnsupportedDtype(dtype_str.to_string()))?;
-        let shape_val = t
-            .get("shape")
-            .and_then(Value::as_array)
-            .ok_or_else(|| SafetensorsError::InvalidHeader(format!("tensor '{key}' missing shape")))?;
+        let shape_val = t.get("shape").and_then(Value::as_array).ok_or_else(|| {
+            SafetensorsError::InvalidHeader(format!("tensor '{key}' missing shape"))
+        })?;
         let shape: Vec<usize> = shape_val
             .iter()
             .map(|v| v.as_u64().map(|n| n as usize))
             .collect::<Option<_>>()
-            .ok_or_else(|| SafetensorsError::InvalidHeader(format!("tensor '{key}' has non-integer shape")))?;
+            .ok_or_else(|| {
+                SafetensorsError::InvalidHeader(format!("tensor '{key}' has non-integer shape"))
+            })?;
         let offsets_val = t
             .get("data_offsets")
             .and_then(Value::as_array)
-            .ok_or_else(|| SafetensorsError::InvalidHeader(format!("tensor '{key}' missing data_offsets")))?;
+            .ok_or_else(|| {
+                SafetensorsError::InvalidHeader(format!("tensor '{key}' missing data_offsets"))
+            })?;
         if offsets_val.len() != 2 {
             return Err(SafetensorsError::InvalidHeader(format!(
                 "tensor '{key}' data_offsets must have exactly two elements"
