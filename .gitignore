@@ -16,3 +16,7 @@ Cargo.lock
 **/fuzz/corpus/
 **/fuzz/artifacts/
 **/fuzz/Cargo.lock
+
+# wasm-pack build output
+crates/wasm-demo/pkg/
+crates/wasm-demo/Cargo.lock

@@ -30,6 +30,8 @@ pub struct WordPieceTokenizer {
     unk_id: TokenId,
     max_input_chars_per_word: usize,
     lowercase: bool,
+    #[cfg(feature = "normalization")]
+    normalize: Option<crate::normalize::NormalizationForm>,
 }
 
 impl WordPieceTokenizer {
@@ -56,6 +58,8 @@ impl WordPieceTokenizer {
             unk_id,
             max_input_chars_per_word: 100,
             lowercase: false,
+            #[cfg(feature = "normalization")]
+            normalize: None,
         })
     }
 
@@ -64,6 +68,16 @@ impl WordPieceTokenizer {
     #[must_use]
     pub fn with_lowercase(mut self) -> Self {
         self.lowercase = true;
+        self
+    }
+
+    /// Applies the given Unicode normalization form to text before encoding.
+    ///
+    /// Requires the `normalization` Cargo feature.
+    #[cfg(feature = "normalization")]
+    #[must_use]
+    pub fn with_normalization(mut self, form: crate::normalize::NormalizationForm) -> Self {
+        self.normalize = Some(form);
         self
     }
 
@@ -129,6 +143,16 @@ impl WordPieceTokenizer {
 
 impl Tokenizer for WordPieceTokenizer {
     fn encode(&self, text: &str) -> Result<Vec<TokenId>, TokenizerError> {
+        #[cfg(feature = "normalization")]
+        let normalized;
+        #[cfg(feature = "normalization")]
+        let text = if let Some(form) = self.normalize {
+            normalized = crate::normalize::normalize(text, form);
+            normalized.as_str()
+        } else {
+            text
+        };
+
         let mut ids = Vec::new();
         for word in bert_basic(text, self.lowercase) {
             match self.tokenize_word(&word) {

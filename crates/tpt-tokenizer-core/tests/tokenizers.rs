@@ -2,7 +2,10 @@
 
 use std::collections::BTreeMap;
 
-use tpt_tokenizer_core::{BpeTokenizer, Tokenizer, WordPieceTokenizer};
+use tpt_tokenizer_core::encoding::{Padding, Truncation};
+use tpt_tokenizer_core::{
+    BpeTokenizer, EncodeConfig, LoadedTokenizer, Tokenizer, TokenizerExt, WordPieceTokenizer,
+};
 
 fn bpe_fixture() -> BpeTokenizer {
     let mut vocab = BTreeMap::new();
@@ -193,4 +196,174 @@ fn wordpiece_from_file_errors_on_missing_unk() {
     assert!(result.is_err());
 
     std::fs::remove_dir_all(&dir).ok();
+}
+
+// --- L121: heap-based BPE merge correctness on longer inputs ---
+
+#[test]
+fn bpe_heap_merges_long_word_correctly() {
+    // Vocab/merges that fully reduce a repeated pattern; exercises the
+    // linked-list + heap merge path over many symbols.
+    let mut vocab = BTreeMap::new();
+    vocab.insert("a".to_string(), 0u32);
+    vocab.insert("b".to_string(), 1u32);
+    vocab.insert("ab".to_string(), 2u32);
+    vocab.insert("abab".to_string(), 3u32);
+    let merges = vec![
+        ("a".to_string(), "b".to_string()),
+        ("ab".to_string(), "ab".to_string()),
+    ];
+    let tok = BpeTokenizer::from_vocab_merges(vocab, merges);
+    // "abababab" -> ab ab ab ab -> abab abab
+    assert_eq!(tok.encode("abababab").unwrap(), vec![3, 3]);
+}
+
+#[test]
+fn bpe_heap_respects_merge_rank_order() {
+    // Lower-rank merges must win: "l"+"o" (rank 0) before "o"+"w" (rank 1).
+    let mut vocab = BTreeMap::new();
+    for (i, t) in ["l", "o", "w", "lo", "low"].iter().enumerate() {
+        vocab.insert(t.to_string(), i as u32);
+    }
+    let merges = vec![
+        ("l".to_string(), "o".to_string()),
+        ("lo".to_string(), "w".to_string()),
+    ];
+    let tok = BpeTokenizer::from_vocab_merges(vocab, merges);
+    assert_eq!(tok.encode("low").unwrap(), vec![4]);
+}
+
+// --- L126: special-token insertion, padding, truncation, batch API ---
+
+#[test]
+fn encode_with_adds_bos_eos() {
+    let tok = bpe_fixture();
+    let cfg = EncodeConfig::new().with_bos(90).with_eos(91);
+    let enc = tok.encode_with("low", &cfg).unwrap();
+    assert_eq!(enc.ids, vec![90, 4, 91]);
+    assert_eq!(enc.attention_mask, vec![1, 1, 1]);
+}
+
+#[test]
+fn encode_with_fixed_padding() {
+    let tok = bpe_fixture();
+    let cfg = EncodeConfig::new().with_pad(0).padding(Padding::Fixed(4));
+    let enc = tok.encode_with("low", &cfg).unwrap();
+    // "low" -> [4], padded to length 4 with pad id 0.
+    assert_eq!(enc.ids, vec![4, 0, 0, 0]);
+    assert_eq!(enc.attention_mask, vec![1, 0, 0, 0]);
+}
+
+#[test]
+fn encode_with_truncation_includes_specials() {
+    let tok = bpe_fixture();
+    let cfg = EncodeConfig::new()
+        .with_bos(90)
+        .with_eos(91)
+        .truncation(Truncation::Fixed(3));
+    // Content [4,3,0,1,2] truncated to room=1 (3 - 2 specials), then bos/eos.
+    let enc = tok.encode_with("low lo l o w", &cfg).unwrap();
+    assert_eq!(enc.ids, vec![90, 4, 91]);
+}
+
+#[test]
+fn encode_batch_pads_to_longest() {
+    let tok = bpe_fixture();
+    let cfg = EncodeConfig::new().with_pad(0).padding(Padding::Longest);
+    let batch = tok.encode_batch(&["low", "low lo l"], &cfg).unwrap();
+    assert_eq!(batch[0].ids.len(), batch[1].ids.len());
+    assert_eq!(batch[0].ids, vec![4, 0, 0]);
+    assert_eq!(batch[0].attention_mask, vec![1, 0, 0]);
+    assert_eq!(batch[1].ids, vec![4, 3, 0]);
+    assert_eq!(batch[1].attention_mask, vec![1, 1, 1]);
+}
+
+#[test]
+fn padding_without_pad_id_errors() {
+    let tok = bpe_fixture();
+    let cfg = EncodeConfig::new().padding(Padding::Fixed(4));
+    assert!(tok.encode_with("low", &cfg).is_err());
+}
+
+// --- L125/177: tokenizer.json loader ---
+
+#[test]
+fn load_bpe_tokenizer_json() {
+    let json = r#"{
+        "model": {
+            "type": "BPE",
+            "vocab": { "l": 0, "o": 1, "w": 2, "lo": 3, "low": 4 },
+            "merges": ["l o", ["lo", "w"]]
+        },
+        "added_tokens": [
+            { "id": 100, "content": "<|endoftext|>", "special": true }
+        ],
+        "pre_tokenizer": { "type": "Whitespace" }
+    }"#;
+    let loaded = tpt_tokenizer_core::from_tokenizer_json_str(json).unwrap();
+    let LoadedTokenizer::Bpe(tok) = loaded else {
+        panic!("expected BPE");
+    };
+    assert_eq!(tok.encode("low").unwrap(), vec![4]);
+    // The special added token is matched atomically.
+    assert_eq!(tok.encode("low<|endoftext|>").unwrap(), vec![4, 100]);
+}
+
+#[test]
+fn load_wordpiece_tokenizer_json_lowercase() {
+    let json = r#"{
+        "model": {
+            "type": "WordPiece",
+            "unk_token": "[UNK]",
+            "vocab": { "[UNK]": 0, "hi": 1 }
+        },
+        "normalizer": { "type": "BertNormalizer", "lowercase": true }
+    }"#;
+    let loaded = tpt_tokenizer_core::from_tokenizer_json_str(json).unwrap();
+    let LoadedTokenizer::WordPiece(tok) = loaded else {
+        panic!("expected WordPiece");
+    };
+    assert_eq!(tok.encode("HI").unwrap(), vec![1]);
+}
+
+#[test]
+fn load_tokenizer_json_rejects_unknown_model() {
+    let json = r#"{ "model": { "type": "Unigram", "vocab": [] } }"#;
+    assert!(tpt_tokenizer_core::from_tokenizer_json_str(json).is_err());
+}
+
+#[test]
+fn load_tokenizer_json_rejects_invalid_json() {
+    assert!(tpt_tokenizer_core::from_tokenizer_json_str("{ not json").is_err());
+}
+
+#[test]
+fn json_parses_unicode_escapes() {
+    use tpt_tokenizer_core::json::{self, JsonValue};
+    let v = json::parse(r#"{ "k": "caf\u00e9 \ud83c\udf89" }"#).unwrap();
+    assert_eq!(v.get("k").and_then(JsonValue::as_str), Some("café 🎉"));
+}
+
+// --- L127: Unicode normalization (feature-gated) ---
+
+#[cfg(feature = "normalization")]
+#[test]
+fn nfc_normalization_before_encoding() {
+    use tpt_tokenizer_core::NormalizationForm;
+    // "é" as base 'e' + combining acute (NFD) should normalize to the single
+    // precomposed "é" (NFC) and match the vocab token.
+    let mut vocab = BTreeMap::new();
+    vocab.insert("é".to_string(), 0u32);
+    let tok =
+        BpeTokenizer::from_vocab_merges(vocab, vec![]).with_normalization(NormalizationForm::Nfc);
+    let decomposed = "e\u{0301}"; // e + combining acute accent
+    assert_eq!(tok.encode(decomposed).unwrap(), vec![0]);
+}
+
+#[cfg(feature = "normalization")]
+#[test]
+fn nfkc_normalization_folds_compatibility_chars() {
+    use tpt_tokenizer_core::{normalize, NormalizationForm};
+    // Fullwidth 'Ａ' (U+FF21) folds to ASCII 'A' under NFKC.
+    assert_eq!(normalize("\u{FF21}", NormalizationForm::Nfkc), "A");
 }

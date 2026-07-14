@@ -15,7 +15,12 @@ readme = "README.md"
 # tokenizer logic itself is `no_std` + `alloc` compatible.
 default = ["std"]
 std = []
+# Opt-in Unicode normalization (NFC/NFD/NFKC/NFKD). Off by default to preserve
+# the crate's zero-dependency default build; enabling it pulls in the
+# `unicode-normalization` crate (no_std + alloc).
+normalization = ["dep:unicode-normalization"]
 
 [dependencies]
+unicode-normalization = { version = "0.1", default-features = false, optional = true }
 
 [dev-dependencies]

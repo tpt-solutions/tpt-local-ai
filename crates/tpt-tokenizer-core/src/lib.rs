@@ -45,7 +45,12 @@
 
 extern crate alloc;
 
+pub mod encoding;
 pub mod error;
+pub mod json;
+pub mod loader;
+#[cfg(feature = "normalization")]
+pub mod normalize;
 pub mod tokenizer;
 
 mod bpe;
@@ -53,6 +58,12 @@ mod pretokenize;
 mod wordpiece;
 
 pub use bpe::BpeTokenizer;
+pub use encoding::{EncodeConfig, Encoding, Padding, TokenizerExt, Truncation};
 pub use error::TokenizerError;
+#[cfg(feature = "std")]
+pub use loader::from_tokenizer_json_file;
+pub use loader::{from_tokenizer_json_str, LoadedTokenizer};
+#[cfg(feature = "normalization")]
+pub use normalize::{normalize, NormalizationForm};
 pub use tokenizer::{TokenId, Tokenizer};
 pub use wordpiece::WordPieceTokenizer;

@@ -1,12 +1,13 @@
 //! Byte-Pair Encoding (BPE) tokenizer.
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BinaryHeap};
 use alloc::{
     format,
     string::{String, ToString},
     vec,
     vec::Vec,
 };
+use core::cmp::Reverse;
 
 use crate::error::TokenizerError;
 use crate::pretokenize::{decode_byte_level, encode_byte_level, gpt2_split};
@@ -43,6 +44,8 @@ pub struct BpeTokenizer {
     byte_level: bool,
     special_tokens: BTreeMap<String, TokenId>,
     special_id_to_token: BTreeMap<TokenId, String>,
+    #[cfg(feature = "normalization")]
+    normalize: Option<crate::normalize::NormalizationForm>,
 }
 
 impl BpeTokenizer {
@@ -70,6 +73,8 @@ impl BpeTokenizer {
             byte_level: false,
             special_tokens: BTreeMap::new(),
             special_id_to_token: BTreeMap::new(),
+            #[cfg(feature = "normalization")]
+            normalize: None,
         }
     }
 
@@ -77,6 +82,16 @@ impl BpeTokenizer {
     #[must_use]
     pub fn with_byte_level(mut self) -> Self {
         self.byte_level = true;
+        self
+    }
+
+    /// Applies the given Unicode normalization form to text before encoding.
+    ///
+    /// Requires the `normalization` Cargo feature.
+    #[cfg(feature = "normalization")]
+    #[must_use]
+    pub fn with_normalization(mut self, form: crate::normalize::NormalizationForm) -> Self {
+        self.normalize = Some(form);
         self
     }
 
@@ -98,39 +113,90 @@ impl BpeTokenizer {
 
     /// Applies the BPE merge algorithm to a single pre-token, returning the
     /// resulting sub-word symbols (before id lookup).
+    ///
+    /// Symbols are held in an intrusive doubly-linked list and candidate merges
+    /// in a binary min-heap keyed by merge rank, so the whole reduction runs in
+    /// `O(n log n)` instead of the naive `O(n²)` rescan-every-pair loop. Heap
+    /// entries can go stale after a merge rewrites a neighbour; those are
+    /// discarded lazily by re-checking the live pair's rank on pop.
     fn tokenize_word(&self, word: &str) -> Vec<String> {
-        if word.is_empty() {
-            return vec![];
-        }
         let mut symbols: Vec<String> = word.chars().map(|c| c.to_string()).collect();
         if symbols.len() < 2 {
             return symbols;
         }
-        loop {
-            let mut best_rank: Option<usize> = None;
-            let mut best_idx: Option<usize> = None;
-            for i in 0..symbols.len() - 1 {
-                if let Some(&rank) = self.merge_ranks.get(&(
-                    // Cheap: BTreeMap requires owned keys, but pre-tokens are
-                    // short so these clones stay small.
-                    symbols[i].clone(),
-                    symbols[i + 1].clone(),
-                )) {
-                    if best_rank.map_or(true, |r| rank < r) {
-                        best_rank = Some(rank);
-                        best_idx = Some(i);
-                    }
-                }
-            }
-            let Some(idx) = best_idx else { break };
-            let merged = format!("{}{}", symbols[idx], symbols[idx + 1]);
-            symbols[idx] = merged;
-            symbols.remove(idx + 1);
-            if symbols.len() < 2 {
-                break;
+        let n = symbols.len();
+
+        // Intrusive doubly-linked list over `symbols` indices.
+        let mut prev: Vec<Option<usize>> = (0..n).map(|i| i.checked_sub(1)).collect();
+        let mut next: Vec<Option<usize>> = (0..n).map(|i| (i + 1 < n).then_some(i + 1)).collect();
+        let mut alive = vec![true; n];
+
+        // Min-heap of `(rank, left_index)`; `Reverse` makes the lowest rank
+        // (earliest merge rule) pop first, matching greedy BPE.
+        let mut heap: BinaryHeap<Reverse<(usize, usize)>> = BinaryHeap::new();
+        for i in 0..n - 1 {
+            if let Some(&rank) = self
+                .merge_ranks
+                .get(&(symbols[i].clone(), symbols[i + 1].clone()))
+            {
+                heap.push(Reverse((rank, i)));
             }
         }
-        symbols
+
+        while let Some(Reverse((rank, i))) = heap.pop() {
+            // Skip entries invalidated by an earlier merge.
+            if !alive[i] {
+                continue;
+            }
+            let Some(j) = next[i] else { continue };
+            if !alive[j] {
+                continue;
+            }
+            match self
+                .merge_ranks
+                .get(&(symbols[i].clone(), symbols[j].clone()))
+            {
+                Some(&cur) if cur == rank => {}
+                _ => continue, // the live pair no longer matches this heap entry
+            }
+
+            // Merge `j` into `i`, unlinking `j`.
+            symbols[i] = format!("{}{}", symbols[i], symbols[j]);
+            alive[j] = false;
+            next[i] = next[j];
+            if let Some(k) = next[j] {
+                prev[k] = Some(i);
+            }
+
+            // Newly-formed pairs (prev[i], i) and (i, next[i]) may now merge.
+            if let Some(p) = prev[i] {
+                if let Some(&r) = self
+                    .merge_ranks
+                    .get(&(symbols[p].clone(), symbols[i].clone()))
+                {
+                    heap.push(Reverse((r, p)));
+                }
+            }
+            if let Some(k) = next[i] {
+                if let Some(&r) = self
+                    .merge_ranks
+                    .get(&(symbols[i].clone(), symbols[k].clone()))
+                {
+                    heap.push(Reverse((r, i)));
+                }
+            }
+        }
+
+        // Walk the surviving symbols in list order.
+        let mut out = Vec::new();
+        let mut cur = Some(0usize);
+        while let Some(i) = cur {
+            if alive[i] {
+                out.push(core::mem::take(&mut symbols[i]));
+            }
+            cur = next[i];
+        }
+        out
     }
 
     /// Looks up a sub-word symbol, falling back to `<unk>` when configured.
@@ -243,6 +309,16 @@ enum Segment<'a> {
 
 impl Tokenizer for BpeTokenizer {
     fn encode(&self, text: &str) -> Result<Vec<TokenId>, TokenizerError> {
+        #[cfg(feature = "normalization")]
+        let normalized;
+        #[cfg(feature = "normalization")]
+        let text = if let Some(form) = self.normalize {
+            normalized = crate::normalize::normalize(text, form);
+            normalized.as_str()
+        } else {
+            text
+        };
+
         let mut ids = Vec::new();
         for segment in self.split_specials(text) {
             match segment {

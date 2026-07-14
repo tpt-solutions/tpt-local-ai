@@ -72,3 +72,19 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
+
+  wasm-demo:
+    name: wasm demo build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: clippy (wasm-demo)
+        run: cargo clippy --manifest-path crates/wasm-demo/Cargo.toml --all-targets --target wasm32-unknown-unknown -- -D warnings
+      - uses: jetli/wasm-pack-action@v0.4.0
+      - name: wasm-pack build
+        run: wasm-pack build crates/wasm-demo --target web

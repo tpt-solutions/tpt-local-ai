@@ -46,6 +46,15 @@ It prints each stage of the pipeline:
 See [`crates/cookbook/src/main.rs`](crates/cookbook/src/main.rs) for the fully
 commented source. Each crate also ships its own focused `examples/`.
 
+## Browser playground (WASM)
+
+Because `tpt-jinja-chat` and `tpt-tokenizer-core` are pure Rust with zero/minimal
+dependencies, they compile straight to WebAssembly. The
+[`crates/wasm-demo`](crates/wasm-demo) crate is a small in-browser playground for
+rendering chat templates and tokenizing text entirely client-side — a "zero
+dependency" proof point. Build it with `wasm-pack build crates/wasm-demo --target web`
+(see its [README](crates/wasm-demo/README.md)).
+
 ## How it compares
 
 These crates deliberately trade breadth for a small, auditable, pure-/minimal-Rust

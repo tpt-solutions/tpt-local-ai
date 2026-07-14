@@ -63,7 +63,10 @@ impl fmt::Display for GgufError {
             GgufError::Io(e) => write!(f, "I/O error: {e}"),
             GgufError::BadMagic => write!(f, "not a GGUF file (bad magic)"),
             GgufError::UnsupportedVersion(v) => {
-                write!(f, "unsupported GGUF version {v} (only 2 and 3 are supported)")
+                write!(
+                    f,
+                    "unsupported GGUF version {v} (only 2 and 3 are supported)"
+                )
             }
             GgufError::UnexpectedEof => write!(f, "unexpected end of file while parsing header"),
             GgufError::UnknownValueType(t) => write!(f, "unknown metadata value type {t}"),
@@ -356,7 +359,9 @@ impl GgufFile {
             let name = cur.string()?;
             let n_dims = cur.u32()?;
             if u64::from(n_dims) > max_reasonable {
-                return Err(GgufError::Malformed("tensor has too many dimensions".to_string()));
+                return Err(GgufError::Malformed(
+                    "tensor has too many dimensions".to_string(),
+                ));
             }
             let mut dimensions = Vec::with_capacity(n_dims as usize);
             for _ in 0..n_dims {
@@ -420,10 +425,7 @@ impl GgufFile {
     /// Looks up a metadata value by key.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&GgufValue> {
-        self.metadata
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v)
+        self.metadata.iter().find(|(k, _)| k == key).map(|(_, v)| v)
     }
 
     /// Convenience accessor for `general.architecture` (e.g. `"llama"`).
@@ -474,7 +476,10 @@ impl<'a> Cursor<'a> {
 
     fn take(&mut self, n: usize) -> Result<&'a [u8], GgufError> {
         let end = self.pos.checked_add(n).ok_or(GgufError::UnexpectedEof)?;
-        let slice = self.bytes.get(self.pos..end).ok_or(GgufError::UnexpectedEof)?;
+        let slice = self
+            .bytes
+            .get(self.pos..end)
+            .ok_or(GgufError::UnexpectedEof)?;
         self.pos = end;
         Ok(slice)
     }
@@ -522,7 +527,9 @@ impl<'a> Cursor<'a> {
                 let elem_ty = self.u32()?;
                 if elem_ty == 9 {
                     // Nested arrays are not part of the GGUF spec.
-                    return Err(GgufError::Malformed("nested arrays are not allowed".to_string()));
+                    return Err(GgufError::Malformed(
+                        "nested arrays are not allowed".to_string(),
+                    ));
                 }
                 let len = self.u64()? as usize;
                 // Cap the pre-allocation; `value_of_type` still bounds-checks
@@ -590,11 +597,8 @@ mod tests {
     fn write_temp(bytes: &[u8]) -> std::path::PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "tpt-gguf-test-{}-{}.gguf",
-            std::process::id(),
-            n
-        ));
+        let path =
+            std::env::temp_dir().join(format!("tpt-gguf-test-{}-{}.gguf", std::process::id(), n));
         std::fs::write(&path, bytes).unwrap();
         path
     }
@@ -676,7 +680,10 @@ mod tests {
         w.u64(0); // tensor_count
         w.u64(1); // kv_count but no kv data follows
         let path = write_temp(&w.buf);
-        assert!(matches!(GgufFile::open(&path), Err(GgufError::UnexpectedEof)));
+        assert!(matches!(
+            GgufFile::open(&path),
+            Err(GgufError::UnexpectedEof)
+        ));
         std::fs::remove_file(&path).ok();
     }
 }

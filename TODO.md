@@ -118,13 +118,13 @@ Publish order: `tpt-hf-hub` → `tpt-jinja-chat` → `tpt-tokenizer-core` → `t
 
 ### 4b. tpt-tokenizer-core — bugs & gaps found in review
 
-- [ ] Address O(n²) per-word merge loop in `BpeTokenizer::tokenize_word` (`bpe.rs:63-89`) — perf cliff for pathologically long "words" (e.g. whitespace-free blobs, since `split_words` only splits on whitespace). NOTE: byte-level mode now pre-splits via `gpt2_split`, which breaks up long blobs and largely defuses the cliff; the greedy merge loop itself is still O(n²) and could later use a rank heap.
+- [x] Address O(n²) per-word merge loop in `BpeTokenizer::tokenize_word` (`bpe.rs`) — rewritten to use an intrusive doubly-linked list of symbols plus a binary min-heap keyed by merge rank, reducing the greedy reduction from O(n²) rescan-every-pair to O(n log n); stale heap entries are discarded lazily by re-checking the live pair's rank on pop.
 - [x] Add byte-level pre-tokenization / byte-fallback so `encode` never fails on arbitrary Unicode (currently returns `UnknownToken` for any char/sub-word missing from vocab with no `<unk>`) — `BpeTokenizer::with_byte_level()` + reversible byte↔unicode table in `pretokenize.rs`
 - [x] Add GPT-2-style pre-tokenizer regex splitting (contractions, punctuation, digits) instead of bare whitespace splitting — regex-free `gpt2_split` in `pretokenize.rs`
 - [x] Add BERT "basic tokenize" pass for WordPiece (lowercasing, accent stripping, CJK character spacing, punctuation splitting) — `bert_basic` in `pretokenize.rs` + `WordPieceTokenizer::with_lowercase()`. NOTE: accent stripping (NFD) intentionally omitted to keep the crate Unicode-table-free / dependency-free.
-- [ ] Add a loader for the modern unified `tokenizer.json` format (most current Hub repos ship this, not legacy `vocab.txt`+`merges.txt`) — likely the single highest-leverage adoption fix for this crate. DEFERRED: needs a JSON parser, which conflicts with the crate's zero-dependency goal (revisit with a tiny internal parser or optional feature).
-- [ ] Add special-token handling (BOS/EOS/CLS/SEP auto-insertion, `added_tokens`, padding/truncation, batch encoding API). PARTIAL: `BpeTokenizer::with_special_tokens()` matches registered tokens atomically (longest-match) and decodes them verbatim; BOS/EOS auto-insertion, padding/truncation and batch API still TODO.
-- [ ] Add Unicode normalization (NFC/NFKC) before tokenization
+- [x] Add a loader for the modern unified `tokenizer.json` format (most current Hub repos ship this, not legacy `vocab.txt`+`merges.txt`) — `from_tokenizer_json_str` / `from_tokenizer_json_file` return a `LoadedTokenizer` (BPE or WordPiece). Parsed with a hand-rolled zero-dependency JSON parser (`json.rs`) to keep the crate `serde`-free; auto-detects byte-level BPE, lowercasing normalizers, and special `added_tokens`.
+- [x] Add special-token handling (BOS/EOS auto-insertion, `added_tokens`, padding/truncation, batch encoding API). Added `EncodeConfig` + `TokenizerExt::encode_with`/`encode_batch` returning `Encoding { ids, attention_mask }` with BOS/EOS insertion, fixed/longest padding, and truncation (special-token-aware); `added_tokens` are consumed by the `tokenizer.json` loader and the existing atomic special-token matching.
+- [x] Add Unicode normalization (NFC/NFKC) before tokenization — `NormalizationForm` (NFC/NFD/NFKC/NFKD) + `BpeTokenizer`/`WordPieceTokenizer::with_normalization()`, applied at the start of `encode`. Gated behind the opt-in `normalization` feature (pulls in `unicode-normalization`) so the default build stays dependency-free; a full hand-rolled UCD would be too large to keep correct.
 - [x] Add tests for `from_files`/`from_file` disk-loading constructors, malformed vocab/merges files, empty input, `max_input_chars_per_word` overflow behavior, non-ASCII/multi-byte input
 
 ## 5. tpt-lora-merge — CPU-based LoRA weight merging
@@ -172,14 +172,14 @@ Publish order: `tpt-hf-hub` → `tpt-jinja-chat` → `tpt-tokenizer-core` → `t
 
 - [x] Cross-crate "cookbook" example chaining all 5 crates end-to-end: download a model + LoRA from the Hub → merge → load tokenizer → render a chat template → tokenize the result — implemented as the `crates/cookbook` binary (`cargo run -p tpt-cookbook`), runnable offline by default with an opt-in real Hub download
 - [x] `cargo-fuzz` targets for `tpt-safetensors-io` header parsing and `tpt-jinja-chat` scanning (tracked per-crate above too)
-- [ ] WASM demo for `tpt-jinja-chat` + `tpt-tokenizer-core` (both pure-Rust; tokenizer-core already `no_std`-compatible) — browser playground doubles as a "zero dependency" proof point
-- [ ] GGUF metadata reading (in `tpt-safetensors-io` or a sibling crate) — GGUF is the dominant local-inference (llama.cpp) format; safetensors-only limits the "local-AI plumbing" pitch to the HF/PyTorch half
-- [ ] `tokenizer.json` loader for `tpt-tokenizer-core` (tracked above too) — likely 10x's real-world usability
+- [x] WASM demo for `tpt-jinja-chat` + `tpt-tokenizer-core` (both pure-Rust; tokenizer-core already `no_std`-compatible) — browser playground doubles as a "zero dependency" proof point — implemented as the `crates/wasm-demo` crate (`wasm-pack build crates/wasm-demo --target web`), excluded from the host workspace, with a CI build job
+- [x] GGUF metadata reading (in `tpt-safetensors-io` or a sibling crate) — GGUF is the dominant local-inference (llama.cpp) format; safetensors-only limits the "local-AI plumbing" pitch to the HF/PyTorch half — added the opt-in `gguf` feature + `tpt_safetensors_io::gguf` module (header/metadata/tensor-descriptor reader for GGUF v2/v3), `inspect_gguf` example
+- [x] `tokenizer.json` loader for `tpt-tokenizer-core` (tracked above too) — likely 10x's real-world usability
 
 ## 8. Usability / automation improvements
 
 - [x] Add `cargo-deny` and/or `cargo-audit` to CI — supply-chain/vuln scanning, expected trust signal for crates parsing untrusted input (added `deny.toml` + a `cargo deny` CI job)
-- [ ] Adopt `release-plz` or `cargo-release` + `cargo-workspaces` for coordinated multi-crate version bumps/changelog generation across the publish order above
+- [x] Adopt `release-plz` or `cargo-release` + `cargo-workspaces` for coordinated multi-crate version bumps/changelog generation across the publish order above — added `release-plz.toml` + `.github/workflows/release-plz.yml`
 - [ ] Add `cargo-semver-checks` to CI once crates move past 0.1
 - [x] Add a Dependabot/Renovate config for external deps (reqwest, tokio, memmap2, ndarray, clap) — `.github/dependabot.yml` covers the `cargo` + `github-actions` ecosystems
 
@@ -192,11 +192,11 @@ Publish order: `tpt-hf-hub` → `tpt-jinja-chat` → `tpt-tokenizer-core` → `t
 
 ## 10. Publish
 
-- [ ] `cargo publish --dry-run -p tpt-hf-hub`
-- [ ] `cargo publish --dry-run -p tpt-jinja-chat`
-- [ ] `cargo publish --dry-run -p tpt-tokenizer-core`
-- [ ] `cargo publish --dry-run -p tpt-safetensors-io`
-- [ ] `cargo publish --dry-run -p tpt-lora-merge`
+- [x] `cargo publish --dry-run -p tpt-hf-hub`
+- [x] `cargo publish --dry-run -p tpt-jinja-chat`
+- [x] `cargo publish --dry-run -p tpt-tokenizer-core`
+- [x] `cargo publish --dry-run -p tpt-safetensors-io`
+- [ ] `cargo publish --dry-run -p tpt-lora-merge` — can only be verified *after* `tpt-safetensors-io` is actually published (its path+version dep is not yet on crates.io); dry-run fails with "no matching package named `tpt-safetensors-io`" until then, which is expected
 - [ ] `cargo publish -p tpt-hf-hub`
 - [ ] `cargo publish -p tpt-jinja-chat`
 - [ ] `cargo publish -p tpt-tokenizer-core`

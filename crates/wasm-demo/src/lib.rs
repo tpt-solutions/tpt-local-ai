@@ -88,8 +88,8 @@ fn build_bpe(
 
 /// Parses a `{ "token": id }` JSON object into a vocabulary map.
 fn parse_vocab(vocab_json: &str) -> Result<BTreeMap<String, u32>, JsError> {
-    let raw: BTreeMap<String, serde_json::Value> =
-        serde_json::from_str(vocab_json).map_err(|e| JsError::new(&format!("invalid vocab JSON: {e}")))?;
+    let raw: BTreeMap<String, serde_json::Value> = serde_json::from_str(vocab_json)
+        .map_err(|e| JsError::new(&format!("invalid vocab JSON: {e}")))?;
     let mut vocab = BTreeMap::new();
     for (token, id) in raw {
         let id = id
