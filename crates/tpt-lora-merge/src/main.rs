@@ -31,6 +31,16 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
+    // Refuse to overwrite either input: `write_to_file` truncates the target,
+    // so pointing `--output` at `--base`/`--lora` would destroy the source.
+    if args.output == args.base || args.output == args.lora {
+        eprintln!(
+            "error: --output ({}) must not overwrite --base or --lora",
+            args.output.display()
+        );
+        exit(1);
+    }
+
     let base = match SafetensorsFile::open(&args.base) {
         Ok(f) => f,
         Err(e) => {

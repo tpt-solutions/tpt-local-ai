@@ -1,5 +1,6 @@
 //! Shared tokenizer trait and token types.
 
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -26,4 +27,26 @@ pub trait Tokenizer {
     /// Returns a [`TokenizerError`] if an id is missing from the inverse
     /// vocabulary.
     fn decode(&self, ids: &[TokenId]) -> Result<String, TokenizerError>;
+}
+
+/// Splits `text` into whitespace-delimited words, skipping empties. Shared by
+/// both tokenizer `encode` implementations so tokenization policy cannot
+/// silently drift between schemes.
+pub(crate) fn split_words(text: &str) -> impl Iterator<Item = &str> {
+    text.split_whitespace().filter(|w| !w.is_empty())
+}
+
+/// Parses a one-token-per-line vocabulary file (line index = token id),
+/// skipping blank lines. Shared by the `std` file-loading constructors.
+#[cfg(feature = "std")]
+pub(crate) fn parse_vocab_lines(text: &str) -> BTreeMap<String, TokenId> {
+    let mut vocab = BTreeMap::new();
+    for (i, line) in text.lines().enumerate() {
+        let token = line.trim_end();
+        if token.is_empty() {
+            continue;
+        }
+        vocab.insert(token.to_string(), i as TokenId);
+    }
+    vocab
 }

@@ -9,7 +9,7 @@ use alloc::{
 };
 
 use crate::error::TokenizerError;
-use crate::tokenizer::{TokenId, Tokenizer};
+use crate::tokenizer::{parse_vocab_lines, split_words, TokenId, Tokenizer};
 
 /// The fallback token name used when a sub-word is not present in the vocab.
 const UNK: &str = "<unk>";
@@ -100,14 +100,7 @@ impl BpeTokenizer {
         let vocab_text = std::fs::read_to_string(vocab_path)?;
         let merges_text = std::fs::read_to_string(merges_path)?;
 
-        let mut vocab = BTreeMap::new();
-        for (i, line) in vocab_text.lines().enumerate() {
-            let token = line.trim_end().to_string();
-            if token.is_empty() {
-                continue;
-            }
-            vocab.insert(token, i as TokenId);
-        }
+        let vocab = parse_vocab_lines(&vocab_text);
 
         let mut merges = Vec::new();
         for line in merges_text.lines() {
@@ -125,10 +118,7 @@ impl BpeTokenizer {
 impl Tokenizer for BpeTokenizer {
     fn encode(&self, text: &str) -> Result<Vec<TokenId>, TokenizerError> {
         let mut ids = Vec::new();
-        for word in text.split_whitespace() {
-            if word.is_empty() {
-                continue;
-            }
+        for word in split_words(text) {
             for sub in self.tokenize_word(word) {
                 match self.vocab.get(&sub) {
                     Some(&id) => ids.push(id),
@@ -145,6 +135,12 @@ impl Tokenizer for BpeTokenizer {
         Ok(ids)
     }
 
+    /// Decode `ids` back into a string by concatenating token text.
+    ///
+    /// Note: `encode` discards whitespace, so this is **lossy** for
+    /// multi-word input — `decode(encode(s))` will not reproduce `s`'s spaces.
+    /// (GPT-2-style tokenizers recover spacing via a `Ġ` marker, which this
+    /// minimal implementation does not emit.)
     fn decode(&self, ids: &[TokenId]) -> Result<String, TokenizerError> {
         let mut out = String::new();
         for &id in ids {

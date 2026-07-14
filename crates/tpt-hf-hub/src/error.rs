@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 /// Errors that can occur while resolving, downloading, or caching Hub files.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum HubError {
     /// The local cache directory could not be determined or created.
     CacheDir(String),
@@ -37,6 +38,16 @@ pub enum HubError {
     },
     /// A repository id was not in the expected `owner/name` or `name` form.
     InvalidRepoId(String),
+    /// A filename or server-provided path was unsafe (absolute or containing
+    /// `..` traversal segments).
+    InvalidPath(String),
+    /// The client is in offline mode and the requested file is not cached.
+    Offline {
+        /// The repository id that was requested.
+        repo_id: String,
+        /// The filename that was requested.
+        filename: String,
+    },
 }
 
 impl fmt::Display for HubError {
@@ -61,6 +72,11 @@ impl fmt::Display for HubError {
                 path.display()
             ),
             HubError::InvalidRepoId(id) => write!(f, "invalid repo id: {id}"),
+            HubError::InvalidPath(p) => write!(f, "unsafe path rejected: {p}"),
+            HubError::Offline { repo_id, filename } => write!(
+                f,
+                "offline mode: {repo_id}/{filename} is not in the local cache"
+            ),
         }
     }
 }

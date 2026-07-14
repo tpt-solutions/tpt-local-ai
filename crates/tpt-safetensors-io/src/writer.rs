@@ -125,14 +125,30 @@ impl SafetensorsBuilder {
         Ok(out)
     }
 
-    /// Builds the file and writes it to `path`.
+    /// Builds the file and writes it to `path` atomically.
+    ///
+    /// The bytes are first written to a temporary file in the same directory,
+    /// flushed, and then renamed over `path`. This guarantees the destination
+    /// is never left half-written or truncated if the write is interrupted.
     ///
     /// # Errors
     /// Propagates any I/O or serialisation error.
     pub fn write_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), SafetensorsError> {
         let bytes = self.build()?;
-        let mut file = File::create(path)?;
-        file.write_all(&bytes)?;
+        let path = path.as_ref();
+        let dir = path.parent().unwrap_or_else(|| Path::new("."));
+        let stem = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "output.safetensors".to_string());
+        let tmp = dir.join(format!(".{}.{}.tmp", stem, std::process::id()));
+
+        {
+            let mut file = File::create(&tmp)?;
+            file.write_all(&bytes)?;
+            file.sync_all().ok();
+        }
+        std::fs::rename(&tmp, path)?;
         Ok(())
     }
 }

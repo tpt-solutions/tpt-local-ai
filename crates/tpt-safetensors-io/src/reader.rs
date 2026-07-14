@@ -259,6 +259,25 @@ fn parse_header(
             },
         ));
     }
+
+    // Validate every tensor's offsets against the actual file length. The
+    // header is attacker-controlled, so an unvalidated `start`/`end` could
+    // make `get_tensor` index out of bounds (panic) or, after a `usize`
+    // overflow on a huge offset, slice a wrong but in-bounds region.
+    for (name, info) in &tensors {
+        if info.start > info.end {
+            return Err(SafetensorsError::InvalidHeader(format!(
+                "tensor '{name}' has start ({}) > end ({})",
+                info.start, info.end
+            )));
+        }
+        if 8 + header_len + info.end > bytes.len() {
+            return Err(SafetensorsError::InvalidHeader(format!(
+                "tensor '{name}' data_offsets exceed file size"
+            )));
+        }
+    }
+
     Ok((tensors, 8 + header_len, metadata))
 }
 

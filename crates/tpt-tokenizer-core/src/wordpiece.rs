@@ -9,7 +9,7 @@ use alloc::{
 };
 
 use crate::error::TokenizerError;
-use crate::tokenizer::{TokenId, Tokenizer};
+use crate::tokenizer::{parse_vocab_lines, split_words, TokenId, Tokenizer};
 
 /// Prefix attached to continuation sub-words in a WordPiece vocabulary.
 const CONTINUATION: &str = "##";
@@ -107,14 +107,7 @@ impl WordPieceTokenizer {
     #[cfg(feature = "std")]
     pub fn from_file(vocab_path: &str, unk_token: &str) -> Result<Self, TokenizerError> {
         let text = std::fs::read_to_string(vocab_path)?;
-        let mut vocab = BTreeMap::new();
-        for (i, line) in text.lines().enumerate() {
-            let token = line.trim_end().to_string();
-            if token.is_empty() {
-                continue;
-            }
-            vocab.insert(token, i as TokenId);
-        }
+        let vocab = parse_vocab_lines(&text);
         Self::from_vocab(vocab, unk_token)
     }
 }
@@ -122,10 +115,7 @@ impl WordPieceTokenizer {
 impl Tokenizer for WordPieceTokenizer {
     fn encode(&self, text: &str) -> Result<Vec<TokenId>, TokenizerError> {
         let mut ids = Vec::new();
-        for word in text.split_whitespace() {
-            if word.is_empty() {
-                continue;
-            }
+        for word in split_words(text) {
             match self.tokenize_word(word) {
                 Some(subs) => {
                     for sub in subs {
@@ -143,9 +133,17 @@ impl Tokenizer for WordPieceTokenizer {
         Ok(ids)
     }
 
+    /// Decode `ids` back into a string, mirroring BERT's
+    /// `convert_tokens_to_string`: continuation tokens (those prefixed with
+    /// `##`) are concatenated directly, while each new word is preceded by a
+    /// space. This preserves inter-word spacing that `encode` discards.
+    ///
+    /// # Errors
+    /// Returns a [`TokenizerError`] if an id is missing from the inverse
+    /// vocabulary.
     fn decode(&self, ids: &[TokenId]) -> Result<String, TokenizerError> {
         let mut out = String::new();
-        for &id in ids {
+        for (i, &id) in ids.iter().enumerate() {
             let token = self
                 .id_to_token
                 .get(&id)
@@ -153,6 +151,9 @@ impl Tokenizer for WordPieceTokenizer {
             if let Some(stripped) = token.strip_prefix(CONTINUATION) {
                 out.push_str(stripped);
             } else {
+                if i > 0 {
+                    out.push(' ');
+                }
                 out.push_str(token);
             }
         }

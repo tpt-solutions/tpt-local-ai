@@ -1,7 +1,7 @@
 //! LoRA merging logic.
 
 use ndarray::{Array2, ArrayView2};
-use tpt_safetensors_io::{SafetensorsBuilder, SafetensorsFile};
+use tpt_safetensors_io::{Dtype, SafetensorsBuilder, SafetensorsFile};
 
 use crate::error::MergeError;
 
@@ -28,11 +28,14 @@ pub fn merge_linear(
     &base + &(lora_b.dot(&lora_a) * scale)
 }
 
-/// The result of a LoRA merge: a set of `(name, shape, f32 data)` tensors ready
-/// to be written back to a safetensors file.
+/// The result of a LoRA merge: a set of `(name, dtype, shape, bytes)` tensors
+/// ready to be written back to a safetensors file.
+///
+/// Tensors that were copied through unchanged keep their original dtype and
+/// raw bytes; only merged tensors are materialised as `F32`.
 #[derive(Debug, Clone, Default)]
 pub struct MergedWeights {
-    tensors: Vec<(String, Vec<usize>, Vec<f32>)>,
+    tensors: Vec<(String, Dtype, Vec<usize>, Vec<u8>)>,
 }
 
 impl MergedWeights {
@@ -56,8 +59,8 @@ impl MergedWeights {
     pub fn write_to_file(&self, path: &std::path::Path) -> Result<(), MergeError> {
         let mut builder = SafetensorsBuilder::new();
         builder.add_metadata("merged_by", serde_json::json!("tpt-lora-merge"));
-        for (name, shape, data) in &self.tensors {
-            builder.add_f32(name.clone(), shape.clone(), data.clone())?;
+        for (name, dtype, shape, bytes) in &self.tensors {
+            builder.add_tensor(name.clone(), *dtype, shape.clone(), bytes.clone())?;
         }
         builder.write_to_file(path)?;
         Ok(())
@@ -69,11 +72,12 @@ impl MergedWeights {
 ///
 /// Base tensors named `<module>.weight` are paired with
 /// `<module>.lora_A.weight` / `<module>.lora_B.weight`. Tensors without a
-/// matching adapter are copied through unchanged.
+/// matching adapter are copied through unchanged (preserving their original
+/// dtype and bytes).
 ///
 /// # Errors
 /// Returns a [`MergeError`] if a referenced tensor is missing, has an
-/// incompatible shape, or cannot be decoded to `f32`.
+/// incompatible shape, or cannot be decoded.
 pub fn merge_lora(
     base: &SafetensorsFile,
     lora: &SafetensorsFile,
@@ -85,12 +89,13 @@ pub fn merge_lora(
         let view = base
             .get_tensor(name)
             .ok_or_else(|| MergeError::MissingTensor(name.to_string()))?;
-        let base_vec = view.to_f32()?;
         let shape = view.shape.clone();
 
         // Only 2-D weights can carry a LoRA adapter.
         if shape.len() != 2 {
-            out.tensors.push((name.to_string(), shape, base_vec));
+            // Copy through unchanged, preserving the original dtype/bytes.
+            out.tensors
+                .push((name.to_string(), view.dtype, shape, view.data.to_vec()));
             continue;
         }
         let (out_dim, in_dim) = (shape[0], shape[1]);
@@ -101,8 +106,9 @@ pub fn merge_lora(
 
         let (Some(a_view), Some(b_view)) = (lora.get_tensor(&a_name), lora.get_tensor(&b_name))
         else {
-            // No adapter for this weight: copy the base through.
-            out.tensors.push((name.to_string(), shape, base_vec));
+            // No adapter for this weight: copy the base through unchanged.
+            out.tensors
+                .push((name.to_string(), view.dtype, shape, view.data.to_vec()));
             continue;
         };
 
@@ -123,7 +129,7 @@ pub fn merge_lora(
             )));
         }
 
-        let base_arr = Array2::from_shape_vec((out_dim, in_dim), base_vec)
+        let base_arr = Array2::from_shape_vec((out_dim, in_dim), view.to_f32()?)
             .map_err(|e| MergeError::Shape(e.to_string()))?;
         let a_arr = Array2::from_shape_vec((r, in_dim), a_vec)
             .map_err(|e| MergeError::Shape(e.to_string()))?;
@@ -131,8 +137,13 @@ pub fn merge_lora(
             .map_err(|e| MergeError::Shape(e.to_string()))?;
 
         let merged = merge_linear(base_arr.view(), a_arr.view(), b_arr.view(), scale);
+        let mut bytes = Vec::with_capacity(merged.len() * 4);
+        for &v in merged.iter() {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        // The merge result is always materialised as F32.
         out.tensors
-            .push((name.to_string(), shape, merged.into_raw_vec_and_offset().0));
+            .push((name.to_string(), Dtype::F32, shape, bytes));
     }
 
     Ok(out)
