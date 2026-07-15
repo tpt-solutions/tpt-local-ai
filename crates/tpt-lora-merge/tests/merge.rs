@@ -296,9 +296,7 @@ fn weighted_sum_of_two_adapters() {
 #[test]
 fn preserves_bf16_base_dtype() {
     // BF16 encoding of 1.0 is 0x3f80 => little-endian [0x80, 0x3f].
-    let ones_bf16: Vec<u8> = std::iter::repeat_n([0x80u8, 0x3f], 4)
-        .flatten()
-        .collect();
+    let ones_bf16: Vec<u8> = std::iter::repeat_n([0x80u8, 0x3f], 4).flatten().collect();
     let mut base_b = SafetensorsBuilder::new();
     base_b
         .add_tensor("w.weight", Dtype::BF16, vec![2, 2], ones_bf16)
