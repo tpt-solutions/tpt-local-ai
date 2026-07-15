@@ -2,7 +2,6 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use ndarray::array;
 use tpt_lora_merge::{merge_linear, merge_lora, merge_loras, MergeError};
 use tpt_safetensors_io::{Dtype, SafetensorsBuilder, SafetensorsFile};
 
@@ -10,11 +9,12 @@ static COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[test]
 fn merge_linear_math() {
-    let base = array![[1.0_f32, 1.0], [1.0, 1.0]];
-    let a = array![[1.0_f32, 0.0], [0.0, 1.0]]; // (r, in)
-    let b = array![[2.0_f32, 0.0], [0.0, 2.0]]; // (out, r)
-    let merged = merge_linear(base.view(), a.view(), b.view(), 0.5);
-    assert_eq!(merged, array![[2.0, 1.0], [1.0, 2.0]]);
+    // base (2×2), lora_a (r=2, in=2), lora_b (out=2, r=2) — flat row-major
+    let base = vec![1.0_f32, 1.0, 1.0, 1.0];
+    let a = vec![1.0_f32, 0.0, 0.0, 1.0]; // (r, in)
+    let b = vec![2.0_f32, 0.0, 0.0, 2.0]; // (out, r)
+    let merged = merge_linear(&base, &a, &b, 2, 2, 2, 0.5);
+    assert_eq!(merged, vec![2.0_f32, 1.0, 1.0, 2.0]);
 }
 
 fn temp_path(tag: &str) -> std::path::PathBuf {

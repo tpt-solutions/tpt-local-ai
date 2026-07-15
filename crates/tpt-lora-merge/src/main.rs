@@ -3,38 +3,90 @@
 use std::path::{Path, PathBuf};
 use std::process::exit;
 
-use clap::Parser;
 use tpt_lora_merge::{merge_loras, MergeError, MergedWeights};
 use tpt_safetensors_io::SafetensorsFile;
 
-/// Merge one or more LoRA adapters into a base model (CPU only).
-#[derive(Parser, Debug)]
-#[command(name = "tpt-lora-merge", version, about)]
 struct Args {
-    /// Path to the base model safetensors file.
-    #[arg(long, value_name = "PATH")]
     base: PathBuf,
-
-    /// Path to a LoRA adapter safetensors file. May be repeated to merge
-    /// several adapters as a weighted sum.
-    #[arg(long = "lora", value_name = "PATH", required = true)]
     lora: Vec<PathBuf>,
-
-    /// Path to write the merged safetensors file to.
-    #[arg(long, value_name = "PATH")]
     output: PathBuf,
-
-    /// Blend factor applied to a LoRA delta (folds in `alpha / r`). Provide once
-    /// to apply to every adapter, or once per `--lora` in matching order. If
-    /// omitted, the scale is derived from each adapter's `adapter_config.json`
-    /// (`alpha / r`) when available, otherwise defaults to 1.0.
-    #[arg(long)]
     scale: Vec<f32>,
-
-    /// Validate base/adapter alignment and report what would be merged without
-    /// writing any output file.
-    #[arg(long)]
     dry_run: bool,
+}
+
+impl Args {
+    fn parse() -> Self {
+        let mut base: Option<PathBuf> = None;
+        let mut lora: Vec<PathBuf> = Vec::new();
+        let mut output: Option<PathBuf> = None;
+        let mut scale: Vec<f32> = Vec::new();
+        let mut dry_run = false;
+
+        let mut args = std::env::args().skip(1).peekable();
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "--help" | "-h" => {
+                    print_help();
+                    exit(0);
+                }
+                "--version" | "-V" => {
+                    println!("tpt-lora-merge {}", env!("CARGO_PKG_VERSION"));
+                    exit(0);
+                }
+                "--dry-run" => dry_run = true,
+                "--base" => base = Some(PathBuf::from(require_value(&mut args, "--base"))),
+                "--lora" => lora.push(PathBuf::from(require_value(&mut args, "--lora"))),
+                "--output" => output = Some(PathBuf::from(require_value(&mut args, "--output"))),
+                "--scale" => {
+                    let s = require_value(&mut args, "--scale");
+                    let v = s.parse::<f32>().unwrap_or_else(|_| {
+                        die(&format!("--scale: invalid float value '{s}'"))
+                    });
+                    scale.push(v);
+                }
+                other => die(&format!("unknown argument: {other}")),
+            }
+        }
+
+        let base = base.unwrap_or_else(|| die("missing required argument: --base"));
+        if lora.is_empty() {
+            die("missing required argument: --lora");
+        }
+        let output = output.unwrap_or_else(|| die("missing required argument: --output"));
+
+        Args { base, lora, output, scale, dry_run }
+    }
+}
+
+fn require_value(args: &mut impl Iterator<Item = String>, flag: &str) -> String {
+    args.next()
+        .unwrap_or_else(|| die(&format!("{flag} requires a value")))
+}
+
+fn die(msg: &str) -> ! {
+    eprintln!("error: {msg}");
+    eprintln!("Run with --help for usage.");
+    exit(1);
+}
+
+fn print_help() {
+    println!("tpt-lora-merge {}", env!("CARGO_PKG_VERSION"));
+    println!("CPU-based merging of LoRA adapters into base model weights.");
+    println!();
+    println!("USAGE:");
+    println!(
+        "  tpt-lora-merge --base <PATH> --lora <PATH> [--lora <PATH> ...] --output <PATH> [OPTIONS]"
+    );
+    println!();
+    println!("OPTIONS:");
+    println!("  --base <PATH>     Path to the base model safetensors file");
+    println!("  --lora <PATH>     Path to a LoRA adapter (may be repeated)");
+    println!("  --output <PATH>   Path to write the merged safetensors file");
+    println!("  --scale <FLOAT>   Blend factor: 0 values = derive from adapter_config.json,");
+    println!("                    1 value = apply to every adapter, or one per --lora");
+    println!("  --dry-run         Validate and report without writing output");
+    println!("  --help, -h        Print this help");
+    println!("  --version, -V     Print version");
 }
 
 fn main() {

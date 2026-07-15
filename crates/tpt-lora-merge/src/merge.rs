@@ -2,7 +2,6 @@
 
 use std::collections::HashSet;
 
-use ndarray::{Array2, ArrayView2};
 use serde_json::{Map, Value};
 use tpt_safetensors_io::{Dtype, SafetensorsBuilder, SafetensorsFile};
 
@@ -16,22 +15,79 @@ const ADAPTER_SUFFIXES: &[(&str, &str)] = &[
     (".lora_down.weight", ".lora_up.weight"),
 ];
 
+/// A row-major 2-D matrix of `f32` values.
+struct Mat {
+    rows: usize,
+    cols: usize,
+    data: Vec<f32>,
+}
+
+impl Mat {
+    fn from_vec(rows: usize, cols: usize, data: Vec<f32>) -> Result<Self, String> {
+        if data.len() != rows * cols {
+            return Err(format!(
+                "expected {}×{}={} elements, got {}",
+                rows,
+                cols,
+                rows * cols,
+                data.len()
+            ));
+        }
+        Ok(Mat { rows, cols, data })
+    }
+
+    /// Row-major matrix multiply: `self` (m×k) @ `rhs` (k×n) → m×n.
+    fn matmul(&self, rhs: &Mat) -> Mat {
+        let (m, k, n) = (self.rows, self.cols, rhs.cols);
+        debug_assert_eq!(k, rhs.rows, "inner dimensions must match");
+        let mut data = vec![0.0f32; m * n];
+        for i in 0..m {
+            for l in 0..k {
+                let a = self.data[i * k + l];
+                for j in 0..n {
+                    data[i * n + j] += a * rhs.data[l * n + j];
+                }
+            }
+        }
+        Mat { rows: m, cols: n, data }
+    }
+
+    fn add_assign(&mut self, rhs: &Mat) {
+        for (a, b) in self.data.iter_mut().zip(&rhs.data) {
+            *a += b;
+        }
+    }
+
+    fn scale(&mut self, s: f32) {
+        for v in &mut self.data {
+            *v *= s;
+        }
+    }
+}
+
 /// Merges a single linear weight: `result = base + scale * (B @ A)`.
 ///
-/// * `base` has shape `(out, in)`.
-/// * `lora_a` has shape `(r, in)`.
-/// * `lora_b` has shape `(out, r)`.
+/// * `base` — flat row-major data of shape `(out_dim, in_dim)`.
+/// * `lora_a` — flat row-major data of shape `(rank, in_dim)`.
+/// * `lora_b` — flat row-major data of shape `(out_dim, rank)`.
+/// * `out_dim`, `rank`, `in_dim` — the explicit dimensions.
 ///
-/// The `scale` argument folds in the `(alpha / r)` factor (and any additional
-/// user scaling) so that higher scales blend more of the adapter in.
+/// Returns the merged values in the same flat row-major layout as `base`.
 #[must_use]
 pub fn merge_linear(
-    base: ArrayView2<f32>,
-    lora_a: ArrayView2<f32>,
-    lora_b: ArrayView2<f32>,
+    base: &[f32],
+    lora_a: &[f32],
+    lora_b: &[f32],
+    out_dim: usize,
+    rank: usize,
+    in_dim: usize,
     scale: f32,
-) -> Array2<f32> {
-    &base + &(lora_b.dot(&lora_a) * scale)
+) -> Vec<f32> {
+    let a = Mat { rows: rank, cols: in_dim, data: lora_a.to_vec() };
+    let b = Mat { rows: out_dim, cols: rank, data: lora_b.to_vec() };
+    let mut delta = b.matmul(&a);
+    delta.scale(scale);
+    base.iter().zip(&delta.data).map(|(x, d)| x + d).collect()
 }
 
 /// The result of a LoRA merge: a set of `(name, dtype, shape, bytes)` tensors
@@ -95,7 +151,7 @@ impl MergedWeights {
 /// `Σ alpha_scale_i * (B_i @ A_i)` (before the user scale is applied), the
 /// dimensions it expects, and the tensor names it consumed.
 struct ResolvedDelta {
-    delta: Array2<f32>,
+    delta: Mat,
     out_dim: usize,
     in_dim: usize,
     consumed: Vec<String>,
@@ -159,9 +215,9 @@ pub fn merge_loras(
         let stem = name.strip_suffix(".weight").unwrap_or(name);
 
         // Accumulate deltas from every adapter that targets this module.
-        let mut delta: Option<Array2<f32>> = None;
+        let mut delta: Option<Mat> = None;
         for (idx, (lora, user_scale)) in adapters.iter().enumerate() {
-            let Some(resolved) = resolve_adapter(lora, stem)? else {
+            let Some(mut resolved) = resolve_adapter(lora, stem)? else {
                 continue;
             };
 
@@ -172,10 +228,13 @@ pub fn merge_loras(
                 )));
             }
 
-            let d = resolved.delta * *user_scale;
+            resolved.delta.scale(*user_scale);
             delta = Some(match delta {
-                Some(acc) => acc + d,
-                None => d,
+                Some(mut acc) => {
+                    acc.add_assign(&resolved.delta);
+                    acc
+                }
+                None => resolved.delta,
             });
             for c in resolved.consumed {
                 consumed[idx].insert(c);
@@ -189,12 +248,11 @@ pub fn merge_loras(
             continue;
         };
 
-        let base_arr = Array2::from_shape_vec((out_dim, in_dim), view.to_f32()?)
-            .map_err(|e| MergeError::Shape(e.to_string()))?;
-        let merged = base_arr + delta;
+        let base_f32 = view.to_f32()?;
+        let merged: Vec<f32> = base_f32.iter().zip(&delta.data).map(|(b, d)| b + d).collect();
 
         // Re-encode to the base dtype so we don't silently double the size.
-        let (dtype, bytes) = encode_to_dtype(view.dtype, merged.as_slice().unwrap_or(&[]));
+        let (dtype, bytes) = encode_to_dtype(view.dtype, &merged);
         out.tensors.push((name.to_string(), dtype, shape, bytes));
         out.merged_modules.push(name.to_string());
     }
@@ -322,10 +380,16 @@ fn resolve_adapter(
 /// Accumulates adapter pair deltas while tracking dimensions and consumed names.
 #[derive(Default)]
 struct DeltaAcc {
-    delta: Option<Array2<f32>>,
+    delta: Option<Mat>,
     out_dim: usize,
     in_dim: usize,
     consumed: Vec<String>,
+}
+
+impl Default for Mat {
+    fn default() -> Self {
+        Mat { rows: 0, cols: 0, data: Vec::new() }
+    }
 }
 
 impl DeltaAcc {
@@ -345,8 +409,8 @@ impl DeltaAcc {
         let a = to_2d(&a_view.shape, a_view.to_f32()?, a_name)?;
         let b = to_2d(&b_view.shape, b_view.to_f32()?, b_name)?;
 
-        let (r, a_in) = (a.shape()[0], a.shape()[1]);
-        let (b_out, b_r) = (b.shape()[0], b.shape()[1]);
+        let (r, a_in) = (a.rows, a.cols);
+        let (b_out, b_r) = (b.rows, b.cols);
         if r != b_r {
             return Err(MergeError::Shape(format!(
                 "{a_name}/{b_name} inner ranks disagree: A rows {r}, B cols {b_r}"
@@ -358,7 +422,8 @@ impl DeltaAcc {
             Some(alpha) if r > 0 => alpha / r as f32,
             _ => 1.0,
         };
-        let contribution = b.dot(&a) * scale;
+        let mut contribution = b.matmul(&a);
+        contribution.scale(scale);
 
         match &mut self.delta {
             Some(existing) => {
@@ -368,7 +433,7 @@ impl DeltaAcc {
                         self.out_dim, self.in_dim
                     )));
                 }
-                *existing = &*existing + &contribution;
+                existing.add_assign(&contribution);
             }
             None => {
                 self.out_dim = b_out;
@@ -382,11 +447,11 @@ impl DeltaAcc {
     }
 }
 
-fn to_2d(shape: &[usize], data: Vec<f32>, name: &str) -> Result<Array2<f32>, MergeError> {
+fn to_2d(shape: &[usize], data: Vec<f32>, name: &str) -> Result<Mat, MergeError> {
     if shape.len() != 2 {
         return Err(MergeError::Shape(format!("{name} must be 2-D")));
     }
-    Array2::from_shape_vec((shape[0], shape[1]), data).map_err(|e| MergeError::Shape(e.to_string()))
+    Mat::from_vec(shape[0], shape[1], data).map_err(|e| MergeError::Shape(e))
 }
 
 /// Encodes merged `f32` values back into the base tensor's dtype, falling back

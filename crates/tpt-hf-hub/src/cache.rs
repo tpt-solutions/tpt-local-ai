@@ -13,11 +13,27 @@ pub fn default_cache_dir() -> Result<PathBuf, HubError> {
     if let Ok(dir) = std::env::var("TPT_HUB_CACHE") {
         return Ok(PathBuf::from(dir));
     }
-    dirs::cache_dir()
+    platform_cache_root()
         .map(|d| d.join("tpt").join("hub"))
         .ok_or_else(|| {
             HubError::CacheDir("unable to determine platform cache directory".to_string())
         })
+}
+
+fn platform_cache_root() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("XDG_CACHE_HOME") {
+        return Some(PathBuf::from(p));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var("LOCALAPPDATA").ok().map(PathBuf::from)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var("HOME")
+            .ok()
+            .map(|h| PathBuf::from(h).join(".cache"))
+    }
 }
 
 /// Converts a Hub repo id (e.g. `org/name`) into a filesystem-safe directory
