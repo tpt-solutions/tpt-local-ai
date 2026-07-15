@@ -188,9 +188,9 @@ pub(crate) fn pad_to(enc: &mut Encoding, target: usize, pad_id: TokenId) {
         return;
     }
     let deficit = target - enc.ids.len();
-    enc.ids.extend(core::iter::repeat(pad_id).take(deficit));
+    enc.ids.extend(std::iter::repeat_n(pad_id, deficit));
     enc.attention_mask
-        .extend(core::iter::repeat(0u32).take(deficit));
+        .extend(std::iter::repeat_n(0u32, deficit));
 }
 
 /// Applies the batch-level padding strategy across `encodings` in place.
