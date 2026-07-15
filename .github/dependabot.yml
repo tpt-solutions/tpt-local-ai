@@ -17,3 +17,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # The MSRV pin in ci.yml must only change when we intentionally bump the
+    # workspace rust-version. Dependabot can't know which toolchain tags are
+    # real Rust releases, so ignore this action to avoid broken MSRV bumps.
+    ignore:
+      - dependency-name: "dtolnay/rust-toolchain"

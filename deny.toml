@@ -29,6 +29,9 @@ allow = [
     "Unicode-DFS-2016",
     "Zlib",
     "MPL-2.0",
+    # Data license for the Mozilla CA root store bundled by webpki-roots
+    # (pulled in transitively via reqwest's rustls-tls feature).
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.9
 
