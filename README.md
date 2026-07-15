@@ -1,6 +1,6 @@
 # tpt-local-ai
 
-[![CI](https://github.com/tpt-ai/tpt-local-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/tpt-ai/tpt-local-ai/actions/workflows/ci.yml)
+[![CI](https://github.com/tpt-solutions/tpt-local-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/tpt-solutions/tpt-local-ai/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 The missing "plumbing" for Rust developers building **local, privacy-first AI**
@@ -75,11 +75,11 @@ Rust **1.80.0**. Enforced in CI.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for local dev setup and the test/lint
-commands. Unless you explicitly state otherwise, any contribution intentionally
-submitted for inclusion in the work by you, as defined in the Apache-2.0
-license, shall be dual licensed as below, without any additional terms or
-conditions.
+Code is developed and maintained by the project maintainer, so pull requests
+with code changes aren't required — but **issues are very welcome**. Please
+report bugs, request features, and ask questions at the
+[issue tracker](https://github.com/tpt-solutions/tpt-local-ai/issues). See
+[CONTRIBUTING.md](CONTRIBUTING.md) for details and local dev setup.
 
 ## License
 
