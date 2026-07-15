@@ -7,6 +7,7 @@ Cargo.lock
 .vscode/
 *.swp
 .DS_Store
+.kilo/
 
 # Local caches produced by the crates
 .tpt-cache/
