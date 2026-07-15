@@ -39,9 +39,9 @@ impl Args {
                 "--output" => output = Some(PathBuf::from(require_value(&mut args, "--output"))),
                 "--scale" => {
                     let s = require_value(&mut args, "--scale");
-                    let v = s.parse::<f32>().unwrap_or_else(|_| {
-                        die(&format!("--scale: invalid float value '{s}'"))
-                    });
+                    let v = s
+                        .parse::<f32>()
+                        .unwrap_or_else(|_| die(&format!("--scale: invalid float value '{s}'")));
                     scale.push(v);
                 }
                 other => die(&format!("unknown argument: {other}")),
@@ -54,7 +54,13 @@ impl Args {
         }
         let output = output.unwrap_or_else(|| die("missing required argument: --output"));
 
-        Args { base, lora, output, scale, dry_run }
+        Args {
+            base,
+            lora,
+            output,
+            scale,
+            dry_run,
+        }
     }
 }
 

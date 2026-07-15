@@ -16,6 +16,7 @@ const ADAPTER_SUFFIXES: &[(&str, &str)] = &[
 ];
 
 /// A row-major 2-D matrix of `f32` values.
+#[derive(Default)]
 struct Mat {
     rows: usize,
     cols: usize,
@@ -49,7 +50,11 @@ impl Mat {
                 }
             }
         }
-        Mat { rows: m, cols: n, data }
+        Mat {
+            rows: m,
+            cols: n,
+            data,
+        }
     }
 
     fn add_assign(&mut self, rhs: &Mat) {
@@ -83,8 +88,16 @@ pub fn merge_linear(
     in_dim: usize,
     scale: f32,
 ) -> Vec<f32> {
-    let a = Mat { rows: rank, cols: in_dim, data: lora_a.to_vec() };
-    let b = Mat { rows: out_dim, cols: rank, data: lora_b.to_vec() };
+    let a = Mat {
+        rows: rank,
+        cols: in_dim,
+        data: lora_a.to_vec(),
+    };
+    let b = Mat {
+        rows: out_dim,
+        cols: rank,
+        data: lora_b.to_vec(),
+    };
     let mut delta = b.matmul(&a);
     delta.scale(scale);
     base.iter().zip(&delta.data).map(|(x, d)| x + d).collect()
@@ -249,7 +262,11 @@ pub fn merge_loras(
         };
 
         let base_f32 = view.to_f32()?;
-        let merged: Vec<f32> = base_f32.iter().zip(&delta.data).map(|(b, d)| b + d).collect();
+        let merged: Vec<f32> = base_f32
+            .iter()
+            .zip(&delta.data)
+            .map(|(b, d)| b + d)
+            .collect();
 
         // Re-encode to the base dtype so we don't silently double the size.
         let (dtype, bytes) = encode_to_dtype(view.dtype, &merged);
@@ -386,11 +403,6 @@ struct DeltaAcc {
     consumed: Vec<String>,
 }
 
-impl Default for Mat {
-    fn default() -> Self {
-        Mat { rows: 0, cols: 0, data: Vec::new() }
-    }
-}
 
 impl DeltaAcc {
     fn add_pair(
@@ -451,7 +463,7 @@ fn to_2d(shape: &[usize], data: Vec<f32>, name: &str) -> Result<Mat, MergeError>
     if shape.len() != 2 {
         return Err(MergeError::Shape(format!("{name} must be 2-D")));
     }
-    Mat::from_vec(shape[0], shape[1], data).map_err(|e| MergeError::Shape(e))
+    Mat::from_vec(shape[0], shape[1], data).map_err(MergeError::Shape)
 }
 
 /// Encodes merged `f32` values back into the base tensor's dtype, falling back

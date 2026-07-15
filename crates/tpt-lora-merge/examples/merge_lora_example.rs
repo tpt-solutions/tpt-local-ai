@@ -10,7 +10,7 @@ use tpt_lora_merge::merge_linear;
 
 fn main() {
     // Base linear weight, shape (out=2, in=2) — flat row-major.
-    let base   = vec![1.0_f32, 1.0, 1.0, 1.0];
+    let base = vec![1.0_f32, 1.0, 1.0, 1.0];
     // LoRA down-projection A, shape (r=2, in=2).
     let lora_a = vec![1.0_f32, 0.0, 0.0, 1.0];
     // LoRA up-projection B, shape (out=2, r=2).
