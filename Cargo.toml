@@ -19,8 +19,8 @@ readme = "README.md"
 # Async HTTP + runtime
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "rustls-native-certs", "stream"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-sha2 = "0.10"
-dirs = "5"
+sha2 = "0.11"
+dirs = "6"
 
 # Safetensors I/O
 memmap2 = "0.9"
@@ -28,7 +28,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # LoRA merge
-ndarray = "0.16"
+ndarray = "0.17"
 clap = { version = "4", features = ["derive"] }
 
 # Internal crates
