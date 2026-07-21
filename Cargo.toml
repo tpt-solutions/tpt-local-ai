@@ -19,7 +19,7 @@ readme = "README.md"
 # Async HTTP + runtime
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "rustls-native-certs", "stream"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-sha2 = "0.10"
+sha2 = "0.11"
 
 # Safetensors I/O
 memmap2 = "0.9"
