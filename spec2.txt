@@ -1,0 +1,77 @@
+Design Update: Grammar-Constrained Decoding Engine
+Repository: tpt-local-ai
+Priority: P1 — Eliminate parsing errors and injection vulnerabilities at the source
+Status: Draft / Pending Implementation
+1. Context & Objective
+Even with perfect runtime verification (tpt-norma/tpt-writ), parsing free-text or loosely structured JSON from an LLM introduces runtime errors, schema mismatches, and potential injection vulnerabilities.
+This update introduces a grammar-constrained decoding capability directly into the tpt-local-ai workspace. By hooking into the token generation process, it forces the model to only output tokens that conform to a predefined grammar or JSON schema. This eliminates the "parsing tax" and guarantees syntactic validity at the source, while leaving semantic validation and authorization to the downstream tpt-norma and tpt-writ layers.
+Placement Rationale: This belongs in tpt-local-ai (not tpt-infer) because constrained decoding is intrinsically tied to the tokenizer vocabulary and autoregressive text generation pipeline, making it a direct sibling to tpt-tokenizer-core and tpt-jinja-chat. tpt-infer remains strictly focused on hardware-agnostic tensor execution.
+2. Workspace & Crate Layout
+Add the following crates to the existing tpt-local-ai Cargo workspace. This keeps the decoding logic close to the tokenization and templating logic where it belongs.
+Crate
+Responsibility
+tpt-constrained-decode-core
+Backend-neutral API, constraint state tracking, and grammar representation.
+tpt-constrained-decode-json
+JSON Schema compilation and incremental validation logic.
+tpt-constrained-decode-grammar
+Context-free grammar (CFG) or Regex compilation and valid-token evaluation.
+tpt-constrained-decode-tokenizer
+Adapter integrating the constraint engine with tpt-tokenizer-core's vocabulary to build token masks.
+3. Core Interface Additions
+The following Rust API shapes define the boundary. The constraint engine must be stateful, tracking the parser state after each generated token to determine the next valid token mask.
+
+/// Represents the compiled state of a grammar or schema.
+pub struct ConstraintState {
+    // Internal representation of the parser state (e.g., LR(1) state, JSON schema node)
+    inner: Box<dyn ConstraintInner>,
+}
+
+pub trait ConstraintEngine {
+    /// Compiles a schema or grammar into an initial constraint state.
+    fn compile(schema: &str) -> Result<ConstraintState, CompilationError>;
+
+    /// Given the current constraint state and the tokenizer vocabulary, 
+    /// returns a boolean mask of valid token IDs.
+    /// `true` means the token is legally allowed to extend the current prefix.
+    fn get_valid_token_mask(
+        &self, 
+        state: &ConstraintState, 
+        tokenizer: &dyn TokenizerVocab, // From tpt-tokenizer-core
+    ) -> TokenMask;
+
+    /// Advances the constraint state based on the chosen token.
+    fn advance_state(&self, state: &mut ConstraintState, token_id: u32) -> Result<(), StateError>;
+
+    /// Checks if the current state represents a complete, valid termination of the grammar.
+    fn is_complete(&self, state: &ConstraintState) -> bool;
+}
+
+/// Integration hook for the inference engine (whatever backend is used).
+pub trait ConstrainedSampler {
+    /// Samples the next token, but zeroes out the logits of any token not in the valid mask.
+    fn sample_constrained(
+        &self,
+        logits: &[f32],
+        mask: &TokenMask,
+        temperature: f32,
+    ) -> Result<u32, SamplingError>;
+}
+
+4. Strict Invariants & Safety Guarantees
+The implementation must enforce the following invariants to ensure the constraint engine is robust and does not become a bottleneck or a source of silent failures:
+Pre-Sampling Enforcement: The constraint mask MUST be applied to the logits before sampling occurs. The model must never be allowed to sample an invalid token.
+Explicit Failure on Empty Mask: If the constraint engine determines that no tokens can legally extend the current prefix (e.g., the model painted itself into a corner), it must explicitly return an error or trigger a backtrack/cancellation, rather than silently allowing an invalid token or hanging.
+Resource Bounding: Grammar compilation and state advancement must have explicit limits. A pathological schema must not cause unbounded CPU or memory consumption.
+Syntactic vs. Semantic Separation: The engine guarantees only syntactic validity (e.g., "this is valid JSON matching the schema"). It explicitly does not guarantee semantic validity (e.g., "this dosage is safe") or authorization. Those remain the sole responsibility of tpt-norma and tpt-writ.
+5. Acceptance Tests (Definition of Done)
+The following tests must pass in CI to prove the constrained decoder works correctly and safely:
+Positive (JSON): Given a strict JSON schema (e.g., {"type": "object", "properties": {"id": {"type": "integer"}}}), the decoder only outputs valid JSON matching that schema, 100% of the time, across 1,000 generations.
+Positive (Grammar): Given a custom CFG (e.g., a specific domain-specific language for flight commands), the output strictly adheres to the grammar rules.
+Negative (Cornering): Force the model into a state where no valid tokens exist. The system must gracefully fail or backtrack, not crash or output invalid tokens.
+Performance: Compiling a complex JSON schema and evaluating the token mask adds less than a defined threshold (e.g., <2ms) per token, ensuring it does not bottleneck the inference loop.
+Tokenizer Integration: Verify that the mask correctly maps grammar rules to the specific vocabulary of tpt-tokenizer-core (handling BPE/WordPiece edge cases like leading spaces or subword tokens).
+6. Dependencies & Contracts
+Requires: tpt-tokenizer-core (to access the vocabulary for building the token mask).
+Requires: tpt-uir (to ensure the generated JSON/grammar aligns with the Canonical Action Envelope structure).
+Provides to: tpt-norma (by guaranteeing that the input to the policy evaluator is well-formed and matches the expected schema, eliminating parsing-related Indeterminate states).
